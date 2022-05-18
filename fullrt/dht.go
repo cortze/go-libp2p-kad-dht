@@ -3,6 +3,7 @@ package fullrt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -271,6 +272,7 @@ func (dht *FullRT) runCrawler(ctx context.Context) {
 		}
 
 		start := time.Now()
+		limitErrOnce := sync.Once{}
 		dht.crawler.Run(ctx, addrs,
 			func(p peer.ID, rtPeers []*peer.AddrInfo) {
 				conns := dht.h.Network().ConnsToPeer(p)
@@ -296,7 +298,13 @@ func (dht *FullRT) runCrawler(ctx context.Context) {
 					addrs: addrs,
 				}
 			},
-			func(p peer.ID, err error) {})
+			func(p peer.ID, err error) {
+				if errors.Is(err, network.ErrResourceLimitExceeded) {
+					limitErrOnce.Do(func() {
+						logger.Errorf("Accelerated DHT client was unable to fully refresh its routing table due to Resource Manager limits, which may degrade content routing. Consider increasing resource limits. See debug logs for details.")
+					})
+				}
+			})
 		dur := time.Since(start)
 		logger.Infof("crawl took %v", dur)
 

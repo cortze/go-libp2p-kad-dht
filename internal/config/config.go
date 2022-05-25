@@ -7,6 +7,7 @@ import (
 	"github.com/ipfs/boxo/ipns"
 	ds "github.com/ipfs/go-datastore"
 	dssync "github.com/ipfs/go-datastore/sync"
+	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
 	"github.com/libp2p/go-libp2p-kbucket/peerdiversity"
 	record "github.com/libp2p/go-libp2p-record"
@@ -46,6 +47,8 @@ type Config struct {
 	EnableValues       bool
 	ProviderStore      providers.ProviderStore
 	QueryPeerFilter    QueryFilterFunc
+	BlacklistPeers     map[peer.ID]struct{}
+	MessageSenderFunc  func(h host.Host, protos []protocol.ID) pb.MessageSender
 
 	RoutingTable struct {
 		RefreshQueryTimeout time.Duration
@@ -132,9 +135,6 @@ var Defaults = func(o *Config) error {
 func (c *Config) Validate() error {
 	if c.ProtocolPrefix != DefaultPrefix {
 		return nil
-	}
-	if c.BucketSize != defaultBucketSize {
-		return fmt.Errorf("protocol prefix %s must use bucket size %d", DefaultPrefix, defaultBucketSize)
 	}
 	if !c.EnableProviders {
 		return fmt.Errorf("protocol prefix %s must have providers enabled", DefaultPrefix)

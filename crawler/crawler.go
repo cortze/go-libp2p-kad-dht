@@ -169,7 +169,7 @@ func (c *DefaultCrawler) Run(ctx context.Context, startingPeers []*peer.AddrInfo
 			continue
 		}
 
-		toDial = append(toDial, ai)
+		toDial = append(toDial, &ai)
 		peersSeen[ai.ID] = struct{}{}
 	}
 

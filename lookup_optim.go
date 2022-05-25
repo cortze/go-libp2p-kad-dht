@@ -188,7 +188,12 @@ func (os *optimisticState) stopFn(qps *qpeerset.QueryPeerset) bool {
 
 	// get currently known closest peers and check if any of them is already very close.
 	// If so -> store provider records straight away.
-	closest := qps.GetClosestNInStates(os.dht.bucketSize, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
+	closest := qps.GetClosestNInStates(
+		os.dht.bucketSize,
+		os.dht.BlacklistPeers,
+		qpeerset.PeerHeard, 
+		qpeerset.PeerWaiting, 
+		qpeerset.PeerQueried)
 	distances := make([]float64, os.dht.bucketSize)
 	for i, p := range closest {
 		// calculate distance of peer p to the target key

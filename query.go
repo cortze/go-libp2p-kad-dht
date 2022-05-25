@@ -49,6 +49,8 @@ type query struct {
 	// queryPeers is the set of peers known by this query and their respective states.
 	queryPeers *qpeerset.QueryPeerset
 
+	lookupMetrics *LookupMetrics
+
 	// terminated is set when the first worker thread encounters the termination condition.
 	// Its role is to make sure that once termination is determined, it is sticky.
 	terminated bool
@@ -71,6 +73,8 @@ type lookupWithFollowupResult struct {
 	// indicates that neither the lookup nor the followup has been prematurely terminated by an external condition such
 	// as context cancellation or the stop function being called.
 	completed bool
+
+	lookupMetrics *LookupMetrics
 }
 
 // runLookupWithFollowup executes the lookup on the target using the given query function and stopping when either the
@@ -98,6 +102,7 @@ func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, qu
 	for i, p := range lookupRes.peers {
 		if state := lookupRes.state[i]; state == qpeerset.PeerHeard || state == qpeerset.PeerWaiting {
 			queryPeers = append(queryPeers, p)
+
 		}
 	}
 
@@ -168,16 +173,17 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 	}
 
 	q := &query{
-		id:         uuid.New(),
-		key:        target,
-		ctx:        ctx,
-		dht:        dht,
-		queryPeers: qpeerset.NewQueryPeerset(target),
-		seedPeers:  seedPeers,
-		peerTimes:  make(map[peer.ID]time.Duration),
-		terminated: false,
-		queryFn:    queryFn,
-		stopFn:     stopFn,
+		id:            uuid.New(),
+		key:           target,
+		ctx:           ctx,
+		dht:           dht,
+		queryPeers:    qpeerset.NewQueryPeerset(target),
+		lookupMetrics: NewLookupMetrics(),
+		seedPeers:     seedPeers,
+		peerTimes:     make(map[peer.ID]time.Duration),
+		terminated:    false,
+		queryFn:       queryFn,
+		stopFn:        stopFn,
 	}
 
 	// run the query
@@ -232,7 +238,12 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 	// extract the top K not unreachable peers
 	var peers []peer.ID
 	peerState := make(map[peer.ID]qpeerset.PeerState)
-	qp := q.queryPeers.GetClosestNInStates(q.dht.bucketSize, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
+	qp := q.queryPeers.GetClosestNInStates(
+		q.dht.bucketSize, 
+		q.dht.BlacklistPeers, 
+		qpeerset.PeerHeard, 
+		qpeerset.PeerWaiting, 
+		qpeerset.PeerQueried)
 	for _, p := range qp {
 		state := q.queryPeers.GetState(p)
 		peerState[p] = state
@@ -245,13 +256,20 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 		sortedPeers = sortedPeers[:q.dht.bucketSize]
 	}
 
-	closest := q.queryPeers.GetClosestNInStates(q.dht.bucketSize, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried, qpeerset.PeerUnreachable)
+	closest := q.queryPeers.GetClosestNInStates(
+		q.dht.bucketSize, 
+		q.dht.BlacklistPeers,
+		qpeerset.PeerHeard, 
+		qpeerset.PeerWaiting, 
+		qpeerset.PeerQueried, 
+		qpeerset.PeerUnreachable)
 
 	// return the top K not unreachable peers as well as their states at the end of the query
 	res := &lookupWithFollowupResult{
-		peers:     sortedPeers,
-		state:     make([]qpeerset.PeerState, len(sortedPeers)),
-		completed: completed,
+		peers:         sortedPeers,
+		state:         make([]qpeerset.PeerState, len(sortedPeers)),
+		lookupMetrics: q.lookupMetrics,
+		completed:     completed,
 		closest:   closest,
 	}
 
@@ -271,6 +289,7 @@ type queryUpdate struct {
 	queryDuration time.Duration
 }
 
+// run runs the DTH lookup using the recursive query to get the closest peers
 func (q *query) run() {
 	ctx, span := internal.StartSpan(q.ctx, "IpfsDHT.Query.Run")
 	defer span.End()
@@ -285,12 +304,15 @@ func (q *query) run() {
 
 	// return only once all outstanding queries have completed.
 	defer q.waitGroup.Wait()
+
 	for {
 		var cause peer.ID
 		select {
 		case update := <-ch:
 			q.updateState(pathCtx, update)
 			cause = update.cause
+			// add all the heard peers into the tree
+			q.lookupMetrics.addNewPeers(cause, update.heard)
 		case <-pathCtx.Done():
 			q.terminate(pathCtx, cancelPath, LookupCancelled)
 		}
@@ -361,7 +383,8 @@ func (q *query) isReadyToTerminate(ctx context.Context, nPeersToQuery int) (bool
 
 	// The peers we query next should be ones that we have only Heard about.
 	var peersToQuery []peer.ID
-	peers := q.queryPeers.GetClosestInStates(qpeerset.PeerHeard)
+	blckls := make(map[peer.ID]struct{})
+	peers := q.queryPeers.GetClosestInStates(blckls, qpeerset.PeerHeard)
 	count := 0
 	for _, p := range peers {
 		peersToQuery = append(peersToQuery, p)
@@ -377,7 +400,8 @@ func (q *query) isReadyToTerminate(ctx context.Context, nPeersToQuery int) (bool
 // From the set of all nodes that are not unreachable,
 // if the closest beta nodes are all queried, the lookup can terminate.
 func (q *query) isLookupTermination() bool {
-	peers := q.queryPeers.GetClosestNInStates(q.dht.beta, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
+	blckls := make(map[peer.ID]struct{})
+	peers := q.queryPeers.GetClosestNInStates(q.dht.beta, blckls, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
 	for _, p := range peers {
 		if q.queryPeers.GetState(p) != qpeerset.PeerQueried {
 			return false
@@ -548,9 +572,9 @@ func (dht *IpfsDHT) dialPeer(ctx context.Context, p peer.ID) error {
 			Extra: err.Error(),
 			ID:    p,
 		})
-
 		return err
 	}
+
 	logger.Debugf("connected. dial success.")
 	return nil
 }

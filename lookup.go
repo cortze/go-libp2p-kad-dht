@@ -21,23 +21,27 @@ import (
 //
 // If the context is canceled, this function will return the context error along
 // with the closest K peers it has found so far.
-func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID, error) {
+
+func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID, *LookupMetrics, error) {
 	ctx, span := internal.StartSpan(ctx, "IpfsDHT.GetClosestPeers", trace.WithAttributes(attribute.String("Key", key)))
 	defer span.End()
-
 	if key == "" {
-		return nil, fmt.Errorf("can't lookup empty key")
+		return nil, nil, fmt.Errorf("can't lookup empty key")
 	}
 
 	//TODO: I can break the interface! return []peer.ID
-	lookupRes, err := dht.runLookupWithFollowup(ctx, key, dht.pmGetClosestPeers(key), func(*qpeerset.QueryPeerset) bool { return false })
+	lookupRes, err := dht.runLookupWithFollowup(
+		ctx, 
+		key, 
+		dht.pmGetClosestPeers(key), 
+		func(*qpeerset.QueryPeerset) bool { return false })
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := ctx.Err(); err != nil || !lookupRes.completed {
-		return lookupRes.peers, err
+		return lookupRes.peers, nil, err
 	}
 
 	// tracking lookup results for network size estimator
@@ -52,7 +56,7 @@ func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID,
 	// refresh the cpl for this key as the query was successful
 	dht.routingTable.ResetCplRefreshedAtForID(kb.ConvertKey(key), time.Now())
 
-	return lookupRes.peers, nil
+	return lookupRes.peers, lookupRes.lookupMetrics, nil
 }
 
 // pmGetClosestPeers is the protocol messenger version of the GetClosestPeer queryFn.

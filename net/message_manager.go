@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,27 +28,33 @@ import (
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 )
 
-var dhtReadMessageTimeout = 10 * time.Second
+const (
+	dhtReadMessageTimeout = 10 * time.Second
+	HydraPeerError        = "messaging hydra node"
+)
 
 // ErrReadTimeout is an error that occurs when no message is read within the timeout period.
 var ErrReadTimeout = fmt.Errorf("timed out reading response")
+var ErrBlacklistedPeer = fmt.Errorf("dialing blacklisted user-agent")
 
 var logger = logging.Logger("dht")
 
 // messageSenderImpl is responsible for sending requests and messages to peers efficiently, including reuse of streams.
 // It also tracks metrics for sent requests and messages.
 type messageSenderImpl struct {
-	host      host.Host // the network services we need
-	smlk      sync.Mutex
-	strmap    map[peer.ID]*peerMessageSender
-	protocols []protocol.ID
+	host        host.Host // the network services we need
+	smlk        sync.Mutex
+	strmap      map[peer.ID]*peerMessageSender
+	protocols   []protocol.ID
+	blacklistUA string // piece of user-agent that is desired to be blacklistable (no-blacklist if empty)
 }
 
-func NewMessageSenderImpl(h host.Host, protos []protocol.ID) pb.MessageSender {
+func NewMessageSenderImpl(h host.Host, protos []protocol.ID, blacklistUA string) pb.MessageSender {
 	return &messageSenderImpl{
-		host:      h,
-		strmap:    make(map[peer.ID]*peerMessageSender),
-		protocols: protos,
+		host:        h,
+		strmap:      make(map[peer.ID]*peerMessageSender),
+		protocols:   protos,
+		blacklistUA: blacklistUA,
 	}
 }
 
@@ -74,7 +81,6 @@ func (m *messageSenderImpl) OnDisconnect(ctx context.Context, p peer.ID) {
 // measure the RTT for latency measurements.
 func (m *messageSenderImpl) SendRequest(ctx context.Context, p peer.ID, pmes *pb.Message) (*pb.Message, error) {
 	ctx, _ = tag.New(ctx, metrics.UpsertMessageType(pmes))
-
 	ms, err := m.messageSenderForPeer(ctx, p)
 	if err != nil {
 		stats.Record(ctx,
@@ -109,7 +115,6 @@ func (m *messageSenderImpl) SendRequest(ctx context.Context, p peer.ID, pmes *pb
 // SendMessage sends out a message
 func (m *messageSenderImpl) SendMessage(ctx context.Context, p peer.ID, pmes *pb.Message) error {
 	ctx, _ = tag.New(ctx, metrics.UpsertMessageType(pmes))
-
 	ms, err := m.messageSenderForPeer(ctx, p)
 	if err != nil {
 		stats.Record(ctx,
@@ -143,13 +148,18 @@ func (m *messageSenderImpl) messageSenderForPeer(ctx context.Context, p peer.ID)
 		m.smlk.Unlock()
 		return ms, nil
 	}
-	ms = &peerMessageSender{p: p, m: m, lk: internal.NewCtxMutex()}
+	ms = &peerMessageSender{p: p, m: m, lk: internal.NewCtxMutex(), blacklistUA: m.blacklistUA}
 	m.strmap[p] = ms
 	m.smlk.Unlock()
 
 	if err := ms.prepOrInvalidate(ctx); err != nil {
 		m.smlk.Lock()
 		defer m.smlk.Unlock()
+
+		// check if err == ErrBlackistedPeer
+		if err == ErrBlacklistedPeer {
+			return nil, err
+		}
 
 		if msCur, ok := m.strmap[p]; ok {
 			// Changed. Use the new one, old one is invalid and
@@ -170,11 +180,12 @@ func (m *messageSenderImpl) messageSenderForPeer(ctx context.Context, p peer.ID)
 
 // peerMessageSender is responsible for sending requests and messages to a particular peer
 type peerMessageSender struct {
-	s  network.Stream
-	r  msgio.ReadCloser
-	lk internal.CtxMutex
-	p  peer.ID
-	m  *messageSenderImpl
+	s           network.Stream
+	r           msgio.ReadCloser
+	lk          internal.CtxMutex
+	blacklistUA string
+	p           peer.ID
+	m           *messageSenderImpl
 
 	invalid   bool
 	singleMes int
@@ -243,6 +254,15 @@ func (ms *peerMessageSender) SendMessage(ctx context.Context, pmes *pb.Message) 
 			return err
 		}
 
+		// check if the peer that we are connecting to is an Hydra-Booster peer
+		ua, err := ms.m.host.Peerstore().Get(ms.p, "AgentVersion")
+		if err == nil && ms.blacklistUA != "" { // if there was no error and blacklistUA was defined by user
+			userAgent := ua.(string)
+			if strings.Contains(userAgent, ms.blacklistUA) {
+				return ErrBlacklistedPeer
+			}
+		}
+
 		if err := ms.writeMsg(pmes); err != nil {
 			_ = ms.s.Reset()
 			ms.s = nil
@@ -256,7 +276,6 @@ func (ms *peerMessageSender) SendMessage(ctx context.Context, pmes *pb.Message) 
 			continue
 		}
 
-		var err error
 		if ms.singleMes > streamReuseTries {
 			err = ms.s.Close()
 			ms.s = nil
@@ -278,6 +297,15 @@ func (ms *peerMessageSender) SendRequest(ctx context.Context, pmes *pb.Message) 
 	for {
 		if err := ms.prep(ctx); err != nil {
 			return nil, err
+		}
+
+		// check if the peer that we are connecting to is an Hydra-Booster peer
+		ua, err := ms.m.host.Peerstore().Get(ms.p, "AgentVersion")
+		if err == nil && ms.blacklistUA != "" { // if there was no error and blacklistUA was defined by user
+			userAgent := ua.(string)
+			if strings.Contains(userAgent, ms.blacklistUA) {
+				return nil, ErrBlacklistedPeer
+			}
 		}
 
 		if err := ms.writeMsg(pmes); err != nil {
@@ -307,7 +335,6 @@ func (ms *peerMessageSender) SendRequest(ctx context.Context, pmes *pb.Message) 
 			continue
 		}
 
-		var err error
 		if ms.singleMes > streamReuseTries {
 			err = ms.s.Close()
 			ms.s = nil

@@ -6,7 +6,9 @@ import (
 	"time"
 
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
+	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
+	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
@@ -334,6 +336,27 @@ func EnableOptimisticProvide() Option {
 func OptimisticProvideJobsPoolSize(size int) Option {
 	return func(c *dhtcfg.Config) error {
 		c.OptimisticProvideJobsPoolSize = size
+		return nil
+	}
+}
+
+
+// --- NEW FEATURE ---
+// WithPeerBlacklist forces the DHT to avoid a certain set of peers.
+// This enables the possibility to remove hydras from participating in our DHT walk and Provide methods
+func WithPeerBlacklist(blacklist map[peer.ID]struct{}) Option {
+	return func(c *dhtcfg.Config) error {
+		c.BlacklistPeers = blacklist
+		return nil
+	}
+}
+
+// --- NEW FEATURE ---
+// WithCustomMessageSender configures the pb.MessageSender of the IpfsDHT to use the
+// custom implementation of the pb.MessageSender
+func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSender) Option {
+	return func(c *dhtcfg.Config) error {
+		c.MessageSenderFunc = initFunc
 		return nil
 	}
 }

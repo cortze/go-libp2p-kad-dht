@@ -124,7 +124,7 @@ func (qp *QueryPeerset) GetReferrer(p peer.ID) peer.ID {
 // GetClosestNInStates returns the closest to the key peers, which are in one of the given states.
 // It returns n peers or less, if fewer peers meet the condition.
 // The returned peers are sorted in ascending order by their distance to the key.
-func (qp *QueryPeerset) GetClosestNInStates(n int, states ...PeerState) (result []peer.ID) {
+func (qp *QueryPeerset) GetClosestNInStates(n int, blacklist map[peer.ID]struct{}, states ...PeerState) (result []peer.ID) {
 	qp.sort()
 	m := make(map[PeerState]struct{}, len(states))
 	for i := range states {
@@ -133,7 +133,9 @@ func (qp *QueryPeerset) GetClosestNInStates(n int, states ...PeerState) (result 
 
 	for _, p := range qp.all {
 		if _, ok := m[p.state]; ok {
-			result = append(result, p.id)
+			if _, ok := blacklist[p.id]; !ok { // only add the peer if it wasn't blacklisted
+				result = append(result, p.id)
+			}
 		}
 	}
 	if len(result) >= n {
@@ -144,16 +146,18 @@ func (qp *QueryPeerset) GetClosestNInStates(n int, states ...PeerState) (result 
 
 // GetClosestInStates returns the peers, which are in one of the given states.
 // The returned peers are sorted in ascending order by their distance to the key.
-func (qp *QueryPeerset) GetClosestInStates(states ...PeerState) (result []peer.ID) {
-	return qp.GetClosestNInStates(len(qp.all), states...)
+func (qp *QueryPeerset) GetClosestInStates(blacklist map[peer.ID]struct{}, states ...PeerState) (result []peer.ID) {
+	return qp.GetClosestNInStates(len(qp.all), blacklist, states...)
 }
 
 // NumHeard returns the number of peers in state PeerHeard.
 func (qp *QueryPeerset) NumHeard() int {
-	return len(qp.GetClosestInStates(PeerHeard))
+	blckls := make(map[peer.ID]struct{})
+	return len(qp.GetClosestInStates(blckls, PeerHeard))
 }
 
 // NumWaiting returns the number of peers in state PeerWaiting.
 func (qp *QueryPeerset) NumWaiting() int {
-	return len(qp.GetClosestInStates(PeerWaiting))
+	blckls := make(map[peer.ID]struct{})
+	return len(qp.GetClosestInStates(blckls, PeerWaiting))
 }

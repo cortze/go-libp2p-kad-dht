@@ -19,9 +19,9 @@ import (
 
 	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
-	"github.com/libp2p/go-libp2p-kad-dht/internal/net"
 	"github.com/libp2p/go-libp2p-kad-dht/metrics"
 	"github.com/libp2p/go-libp2p-kad-dht/netsize"
+	"github.com/libp2p/go-libp2p-kad-dht/net"
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
 	"github.com/libp2p/go-libp2p-kad-dht/rtrefresh"
@@ -37,6 +37,7 @@ import (
 	goprocessctx "github.com/jbenet/goprocess/context"
 	"github.com/multiformats/go-base32"
 	ma "github.com/multiformats/go-multiaddr"
+	multihash "github.com/multiformats/go-multihash"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
 )
@@ -76,6 +77,8 @@ type addPeerRTReq struct {
 	queryPeer bool
 }
 
+type ContextKey string
+
 // IpfsDHT is an implementation of Kademlia with S/Kademlia modifications.
 // It is used to implement the base Routing module.
 type IpfsDHT struct {
@@ -113,6 +116,9 @@ type IpfsDHT struct {
 
 	// DHT protocols we can respond to.
 	serverProtocols []protocol.ID
+
+	// blacklisted peers
+	BlacklistPeers map[peer.ID]struct{}
 
 	auto   ModeOpt
 	mode   mode
@@ -199,10 +205,23 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 	dht.disableFixLowPeers = cfg.DisableFixLowPeers
 
 	dht.Validator = cfg.Validator
-	dht.msgSender = net.NewMessageSenderImpl(h, dht.protocols)
+
+	// check if there is any MessageSender in the cfg
+	if cfg.MessageSenderFunc == nil {
+		dht.msgSender = net.NewMessageSenderImpl(h, dht.protocols, "")
+	} else {
+		dht.msgSender = cfg.MessageSenderFunc(h, dht.protocols)
+	}
 	dht.protoMessenger, err = pb.NewProtocolMessenger(dht.msgSender)
 	if err != nil {
 		return nil, err
+	}
+
+	// Add the blacklist peers to the DHT
+	if cfg.BlacklistPeers == nil {
+		dht.BlacklistPeers = make(map[peer.ID]struct{})
+	} else {
+		dht.BlacklistPeers = cfg.BlacklistPeers
 	}
 
 	dht.testAddressUpdateProcessing = cfg.TestAddressUpdateProcessing
@@ -373,13 +392,14 @@ func makeDHT(ctx context.Context, h host.Host, cfg dhtcfg.Config) (*IpfsDHT, err
 }
 
 func makeRtRefreshManager(dht *IpfsDHT, cfg dhtcfg.Config, maxLastSuccessfulOutboundThreshold time.Duration) (*rtrefresh.RtRefreshManager, error) {
+
 	keyGenFnc := func(cpl uint) (string, error) {
 		p, err := dht.routingTable.GenRandPeerID(cpl)
 		return string(p), err
 	}
 
 	queryFnc := func(ctx context.Context, key string) error {
-		_, err := dht.GetClosestPeers(ctx, key)
+		_, _, err := dht.GetClosestPeers(ctx, key)
 		return err
 	}
 
@@ -885,4 +905,27 @@ func (dht *IpfsDHT) maybeAddAddrs(p peer.ID, addrs []ma.Multiaddr, ttl time.Dura
 		return
 	}
 	dht.peerstore.AddAddrs(p, addrs, ttl)
+}
+
+// GetProvidersFromPeer allows you to request the provider records of a single peer.
+// Returning the providers it knows of for a given key. Also returns the K closest peers to the key
+// as described in GetClosestPeers.
+func (dht *IpfsDHT) GetProvidersFromPeer(ctx context.Context, p peer.ID, key multihash.Multihash) ([]*peer.AddrInfo, []*peer.AddrInfo, error) {
+	return dht.protoMessenger.GetProviders(ctx, p, key)
+}
+
+// IsBlacklisted
+func (dht *IpfsDHT) IsBlacklisted(p peer.ID) bool {
+	dht.plk.Lock()
+	defer dht.plk.Unlock()
+
+	_, ok := dht.BlacklistPeers[p]
+	return ok
+}
+
+func (dht *IpfsDHT) BlacklistPeer(p peer.ID) {
+	dht.plk.Lock()
+	defer dht.plk.Unlock()
+
+	dht.BlacklistPeers[p] = struct{}{}
 }

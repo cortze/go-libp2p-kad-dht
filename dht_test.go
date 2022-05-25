@@ -780,7 +780,7 @@ func TestQueryWithEmptyRTShouldNotPanic(t *testing.T) {
 	require.Empty(t, ps)
 
 	// GetClosestPeers
-	pc, err := d.GetClosestPeers(ctx, "key")
+	pc, _, err := d.GetClosestPeers(ctx, "key")
 	require.Nil(t, pc)
 	require.Equal(t, kb.ErrLookupFailure, err)
 
@@ -1445,7 +1445,7 @@ func testFindPeerQuery(t *testing.T,
 	val := "foobar"
 	rtval := kb.ConvertKey(val)
 
-	outpeers, err := guy.GetClosestPeers(ctx, val)
+	outpeers, _, err := guy.GetClosestPeers(ctx, val)
 	require.NoError(t, err)
 
 	sort.Sort(peer.IDSlice(outpeers))
@@ -1476,7 +1476,7 @@ func TestFindClosestPeers(t *testing.T) {
 	}
 
 	querier := dhts[1]
-	peers, err := querier.GetClosestPeers(ctx, "foo")
+	peers, _, err := querier.GetClosestPeers(ctx, "foo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1845,7 +1845,7 @@ func TestInvalidKeys(t *testing.T) {
 	}
 
 	querier := dhts[0]
-	_, err := querier.GetClosestPeers(ctx, "")
+	_, _, err := querier.GetClosestPeers(ctx, "")
 	if err == nil {
 		t.Fatal("get closest peers should have failed")
 	}
@@ -2125,7 +2125,7 @@ func TestPreconnectedNodes(t *testing.T) {
 	defer h2.Close()
 
 	// See if it works
-	peers, err := d2.GetClosestPeers(ctx, "testkey")
+	peers, _, err := d2.GetClosestPeers(ctx, "testkey")
 	require.NoError(t, err)
 
 	require.Equal(t, len(peers), 1, "why is there more than one peer?")

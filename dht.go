@@ -17,8 +17,8 @@ import (
 
 	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
-	"github.com/libp2p/go-libp2p-kad-dht/internal/net"
 	"github.com/libp2p/go-libp2p-kad-dht/metrics"
+	"github.com/libp2p/go-libp2p-kad-dht/net"
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
 	"github.com/libp2p/go-libp2p-kad-dht/rtrefresh"
@@ -34,6 +34,7 @@ import (
 	goprocessctx "github.com/jbenet/goprocess/context"
 	"github.com/multiformats/go-base32"
 	ma "github.com/multiformats/go-multiaddr"
+	multihash "github.com/multiformats/go-multihash"
 	"go.opencensus.io/tag"
 	"go.uber.org/zap"
 )
@@ -190,7 +191,13 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 	dht.disableFixLowPeers = cfg.DisableFixLowPeers
 
 	dht.Validator = cfg.Validator
-	dht.msgSender = net.NewMessageSenderImpl(h, dht.protocols)
+
+	// check if there is any MessageSender in the cfg
+	if cfg.MessageSenderFunc == nil {
+		dht.msgSender = net.NewMessageSenderImpl(h, dht.protocols)
+	} else {
+		dht.msgSender = cfg.MessageSenderFunc(h, dht.protocols)
+	}
 	dht.protoMessenger, err = pb.NewProtocolMessenger(dht.msgSender)
 	if err != nil {
 		return nil, err
@@ -841,4 +848,11 @@ func (dht *IpfsDHT) maybeAddAddrs(p peer.ID, addrs []ma.Multiaddr, ttl time.Dura
 		return
 	}
 	dht.peerstore.AddAddrs(p, addrs, ttl)
+}
+
+// GetProvidersFromPeer allows you to request the provider records of a single peer.
+// Returning the providers it knows of for a given key. Also returns the K closest peers to the key
+// as described in GetClosestPeers.
+func (dht *IpfsDHT) GetProvidersFromPeer(ctx context.Context, p peer.ID, key multihash.Multihash) ([]*peer.AddrInfo, []*peer.AddrInfo, error) {
+	return dht.protoMessenger.GetProviders(ctx, p, key)
 }

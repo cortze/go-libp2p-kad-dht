@@ -5,9 +5,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
+	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
 
 	"github.com/libp2p/go-libp2p-kbucket/peerdiversity"
@@ -287,6 +289,15 @@ func BootstrapPeersFunc(getBootstrapPeers func() []peer.AddrInfo) Option {
 func RoutingTablePeerDiversityFilter(pg peerdiversity.PeerIPGroupFilter) Option {
 	return func(c *dhtcfg.Config) error {
 		c.RoutingTable.DiversityFilter = pg
+		return nil
+	}
+}
+
+// WithCustomMessageSender configures the pb.MessageSender of the IpfsDHT to use the
+// custom implementation of the pb.MessageSender
+func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSender) Option {
+	return func(c *dhtcfg.Config) error {
+		c.MessageSenderFunc = initFunc
 		return nil
 	}
 }

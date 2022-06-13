@@ -129,9 +129,6 @@ func (c *Config) Validate() error {
 	if c.ProtocolPrefix != DefaultPrefix {
 		return nil
 	}
-	if c.BucketSize != defaultBucketSize {
-		return fmt.Errorf("protocol prefix %s must use bucket size %d", DefaultPrefix, defaultBucketSize)
-	}
 	if !c.EnableProviders {
 		return fmt.Errorf("protocol prefix %s must have providers enabled", DefaultPrefix)
 	}

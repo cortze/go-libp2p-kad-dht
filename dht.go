@@ -74,6 +74,8 @@ type addPeerRTReq struct {
 	queryPeer bool
 }
 
+type ContextKey string
+
 // IpfsDHT is an implementation of Kademlia with S/Kademlia modifications.
 // It is used to implement the base Routing module.
 type IpfsDHT struct {
@@ -362,16 +364,18 @@ func makeDHT(ctx context.Context, h host.Host, cfg dhtcfg.Config) (*IpfsDHT, err
 }
 
 func makeRtRefreshManager(dht *IpfsDHT, cfg dhtcfg.Config, maxLastSuccessfulOutboundThreshold time.Duration) (*rtrefresh.RtRefreshManager, error) {
+	var hops int32
+
 	keyGenFnc := func(cpl uint) (string, error) {
 		p, err := dht.routingTable.GenRandPeerID(cpl)
 		return string(p), err
 	}
 
 	queryFnc := func(ctx context.Context, key string) error {
-		_, err := dht.GetClosestPeers(ctx, key)
+		_, err := dht.GetClosestPeers(ctx, key, &hops)
 		return err
 	}
-
+	_ = hops // hops don't matter so far, just complying the interface
 	r, err := rtrefresh.NewRtRefreshManager(
 		dht.host, dht.routingTable, cfg.RoutingTable.AutoRefresh,
 		keyGenFnc,

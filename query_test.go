@@ -50,11 +50,13 @@ func TestRTEvictionOnFailedQuery(t *testing.T) {
 		return nil
 	}))
 
+	var hops int32
+
 	// failed queries should remove the peers from the RT
-	_, err := d1.GetClosestPeers(ctx, "test")
+	_, err := d1.GetClosestPeers(ctx, "test", &hops)
 	require.NoError(t, err)
 
-	_, err = d2.GetClosestPeers(ctx, "test")
+	_, err = d2.GetClosestPeers(ctx, "test", &hops)
 	require.NoError(t, err)
 
 	require.NoError(t, tu.WaitFor(ctx, func() error {
@@ -100,8 +102,10 @@ func TestRTAdditionOnSuccessfulQuery(t *testing.T) {
 		return nil
 	}))
 
+	var hops int32
+
 	// but when d3 queries d2, d1 and d3 discover each other
-	_, err := d3.GetClosestPeers(ctx, "something")
+	_, err := d3.GetClosestPeers(ctx, "something", &hops)
 	require.NoError(t, err)
 	require.NoError(t, tu.WaitFor(ctx, func() error {
 		if !checkRoutingTable(d1, d3) {

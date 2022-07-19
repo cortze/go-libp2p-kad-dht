@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/network"
@@ -46,6 +47,8 @@ type query struct {
 	// queryPeers is the set of peers known by this query and their respective states.
 	queryPeers *qpeerset.QueryPeerset
 
+	queryHops *queryHops
+
 	// terminated is set when the first worker thread encounters the termination condition.
 	// Its role is to make sure that once termination is determined, it is sticky.
 	terminated bool
@@ -64,6 +67,9 @@ type lookupWithFollowupResult struct {
 	peers []peer.ID            // the top K not unreachable peers at the end of the query
 	state []qpeerset.PeerState // the peer states at the end of the query
 
+	// keep track of the hops performed to find the closest peers
+	hops int32
+
 	// indicates that neither the lookup nor the followup has been prematurely terminated by an external condition such
 	// as context cancellation or the stop function being called.
 	completed bool
@@ -76,7 +82,7 @@ type lookupWithFollowupResult struct {
 //
 // After the lookup is complete the query function is run (unless stopped) against all of the top K peers from the
 // lookup that have not already been successfully queried.
-func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, hops *int32, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	// run the query
 	lookupRes, err := dht.runQuery(ctx, target, queryFn, stopFn)
 	if err != nil {
@@ -142,6 +148,9 @@ processFollowUp:
 		}
 	}
 
+	// add the number of hops to the pointer given by the caller
+	atomic.StoreInt32(hops, lookupRes.hops)
+
 	return lookupRes, nil
 }
 
@@ -163,6 +172,7 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 		ctx:        ctx,
 		dht:        dht,
 		queryPeers: qpeerset.NewQueryPeerset(target),
+		queryHops:  newQueryHops(),
 		seedPeers:  seedPeers,
 		peerTimes:  make(map[peer.ID]time.Duration),
 		terminated: false,
@@ -235,10 +245,14 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 		sortedPeers = sortedPeers[:q.dht.bucketSize]
 	}
 
+	// get the number of hops from the lookup
+	h := q.queryHops.getHops()
+
 	// return the top K not unreachable peers as well as their states at the end of the query
 	res := &lookupWithFollowupResult{
 		peers:     sortedPeers,
 		state:     make([]qpeerset.PeerState, len(sortedPeers)),
+		hops:      int32(h),
 		completed: completed,
 	}
 
@@ -258,7 +272,10 @@ type queryUpdate struct {
 	queryDuration time.Duration
 }
 
+// run runs the DTH lookup using the recursive query to get the closest peers
 func (q *query) run() {
+	// keep track of the initial K closest peers
+
 	pathCtx, cancelPath := context.WithCancel(q.ctx)
 	defer cancelPath()
 
@@ -297,6 +314,7 @@ func (q *query) run() {
 		// try spawning the queries, if there are no available peers to query then we won't spawn them
 		for _, p := range qPeers {
 			q.spawnQuery(pathCtx, cause, p, ch)
+			q.queryHops.addNewPeer(cause, p)
 		}
 	}
 }

@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
 	pstore "github.com/libp2p/go-libp2p-core/peerstore"
 	"github.com/libp2p/go-libp2p-core/routing"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/google/uuid"
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"
@@ -68,8 +68,7 @@ type lookupWithFollowupResult struct {
 	state []qpeerset.PeerState // the peer states at the end of the query
 
 	// keep track of the totalHops performed to find the closest peers
-	totalHops      int32
-	hopsForClosest int32
+	hops *Hops
 
 	// indicates that neither the lookup nor the followup has been prematurely terminated by an external condition such
 	// as context cancellation or the stop function being called.
@@ -83,9 +82,9 @@ type lookupWithFollowupResult struct {
 //
 // After the lookup is complete the query function is run (unless stopped) against all of the top K peers from the
 // lookup that have not already been successfully queried.
-func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, totalHops *int32, hopsForClosest *int32, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, hops *Hops, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	// run the query
-	lookupRes, err := dht.runQuery(ctx, target, queryFn, stopFn)
+	lookupRes, err := dht.runQuery(ctx, target, hops, queryFn, stopFn)
 	if err != nil {
 		return nil, err
 	}
@@ -150,13 +149,16 @@ processFollowUp:
 	}
 
 	// add the number of totalHops to the pointer given by the caller
-	atomic.StoreInt32(totalHops, lookupRes.totalHops)
-	atomic.StoreInt32(hopsForClosest, lookupRes.hopsForClosest)
+	*hops = *lookupRes.hops
+
+	if hops.Total == 0 && hops.ToClosest == 0 {
+		log.Error("no lookup?")
+	}
 
 	return lookupRes, nil
 }
 
-func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runQuery(ctx context.Context, target string, hops *Hops, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	// pick the K closest peers to the key in our Routing table.
 	targetKadID := kb.ConvertKey(target)
 	seedPeers := dht.routingTable.NearestPeers(targetKadID, dht.bucketSize)
@@ -190,6 +192,11 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 	}
 
 	res := q.constructLookupResult(targetKadID)
+
+	// copy data from res to org hops counter
+	hops.Total = res.hops.Total
+	hops.ToClosest = res.hops.ToClosest
+
 	return res, nil
 }
 
@@ -247,17 +254,18 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 		sortedPeers = sortedPeers[:q.dht.bucketSize]
 	}
 
-	// get the number of totalHops from the lookup
-	h := q.queryHops.getHops()
-	closestH := q.queryHops.getHopsForPeerSet(sortedPeers)
+	// get the number of hops from the lookup
+	hops := &Hops{
+		Total:     q.queryHops.getHops(),
+		ToClosest: q.queryHops.getHopsForPeerSet(sortedPeers),
+	}
 
 	// return the top K not unreachable peers as well as their states at the end of the query
 	res := &lookupWithFollowupResult{
-		peers:          sortedPeers,
-		state:          make([]qpeerset.PeerState, len(sortedPeers)),
-		totalHops:      int32(h),
-		hopsForClosest: int32(closestH),
-		completed:      completed,
+		peers:     sortedPeers,
+		state:     make([]qpeerset.PeerState, len(sortedPeers)),
+		hops:      hops,
+		completed: completed,
 	}
 
 	for i, p := range sortedPeers {
@@ -296,6 +304,10 @@ func (q *query) run() {
 		case update := <-ch:
 			q.updateState(pathCtx, update)
 			cause = update.cause
+			// add all the heard peers into the tree
+			for _, p := range update.heard {
+				q.queryHops.addNewPeer(cause, p)
+			}
 		case <-pathCtx.Done():
 			q.terminate(pathCtx, cancelPath, LookupCancelled)
 		}
@@ -318,7 +330,6 @@ func (q *query) run() {
 		// try spawning the queries, if there are no available peers to query then we won't spawn them
 		for _, p := range qPeers {
 			q.spawnQuery(pathCtx, cause, p, ch)
-			q.queryHops.addNewPeer(cause, p)
 		}
 	}
 }

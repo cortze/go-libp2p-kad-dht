@@ -776,10 +776,10 @@ func TestQueryWithEmptyRTShouldNotPanic(t *testing.T) {
 	ps, _ := d.FindProviders(ctx, testCaseCids[0])
 	require.Empty(t, ps)
 
-	var totalHops, hopsForClosest int32
+	var hops Hops
 
 	// GetClosestPeers
-	pc, err := d.GetClosestPeers(ctx, "key", &totalHops, &hopsForClosest)
+	pc, err := d.GetClosestPeers(ctx, "key", &hops)
 	require.Nil(t, pc)
 	require.Equal(t, kb.ErrLookupFailure, err)
 
@@ -1443,13 +1443,12 @@ func testFindPeerQuery(t *testing.T,
 	val := "foobar"
 	rtval := kb.ConvertKey(val)
 
-	var totalHops, hopsForClosest int32
+	var hops Hops
 
-	outpeers, err := guy.GetClosestPeers(ctx, val, &totalHops, &hopsForClosest)
+	outpeers, err := guy.GetClosestPeers(ctx, val, &hops)
 	require.NoError(t, err)
 
-	_ = totalHops
-	_ = hopsForClosest
+	_ = hops
 
 	sort.Sort(peer.IDSlice(outpeers))
 
@@ -1478,16 +1477,15 @@ func TestFindClosestPeers(t *testing.T) {
 		connect(t, ctx, dhts[i], dhts[(i+1)%len(dhts)])
 	}
 
-	var totalHops, hopsForClosest int32
+	var hops Hops
 
 	querier := dhts[1]
-	peers, err := querier.GetClosestPeers(ctx, "foo", &totalHops, &hopsForClosest)
+	peers, err := querier.GetClosestPeers(ctx, "foo", &hops)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_ = totalHops
-	_ = hopsForClosest
+	_ = hops
 
 	if len(peers) < querier.beta {
 		t.Fatalf("got wrong number of peers (got %d, expected at least %d)", len(peers), querier.beta)
@@ -1846,16 +1844,15 @@ func TestInvalidKeys(t *testing.T) {
 		connect(t, ctx, dhts[i], dhts[(i+1)%len(dhts)])
 	}
 
-	var totalHops, hopsForClosest int32
+	var hops Hops
 
 	querier := dhts[0]
-	_, err := querier.GetClosestPeers(ctx, "", &totalHops, &hopsForClosest)
+	_, err := querier.GetClosestPeers(ctx, "", &hops)
 	if err == nil {
 		t.Fatal("get closest peers should have failed")
 	}
 
-	_ = totalHops
-	_ = hopsForClosest
+	_ = hops
 
 	_, err = querier.FindProviders(ctx, cid.Cid{})
 	switch err {
@@ -2127,14 +2124,13 @@ func TestPreconnectedNodes(t *testing.T) {
 	require.NoError(t, err)
 	defer h2.Close()
 
-	var totalHops, hopsForClosest int32
+	var hops Hops
 
 	// See if it works
-	peers, err := d2.GetClosestPeers(ctx, "testkey", &totalHops, &hopsForClosest)
+	peers, err := d2.GetClosestPeers(ctx, "testkey", &hops)
 	require.NoError(t, err)
 
-	_ = totalHops
-	_ = hopsForClosest
+	_ = hops
 
 	require.Equal(t, len(peers), 1, "why is there more than one peer?")
 	require.Equal(t, h1.ID(), peers[0], "could not find peer")

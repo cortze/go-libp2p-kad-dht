@@ -364,7 +364,7 @@ func makeDHT(ctx context.Context, h host.Host, cfg dhtcfg.Config) (*IpfsDHT, err
 }
 
 func makeRtRefreshManager(dht *IpfsDHT, cfg dhtcfg.Config, maxLastSuccessfulOutboundThreshold time.Duration) (*rtrefresh.RtRefreshManager, error) {
-	var totalHops, hopsForClosest int32
+	var hops Hops
 
 	keyGenFnc := func(cpl uint) (string, error) {
 		p, err := dht.routingTable.GenRandPeerID(cpl)
@@ -372,11 +372,10 @@ func makeRtRefreshManager(dht *IpfsDHT, cfg dhtcfg.Config, maxLastSuccessfulOutb
 	}
 
 	queryFnc := func(ctx context.Context, key string) error {
-		_, err := dht.GetClosestPeers(ctx, key, &totalHops, &hopsForClosest)
+		_, err := dht.GetClosestPeers(ctx, key, &hops)
 		return err
 	}
-	_ = totalHops // hops don't matter so far, just complying the interface
-	_ = hopsForClosest
+	_ = hops
 
 	r, err := rtrefresh.NewRtRefreshManager(
 		dht.host, dht.routingTable, cfg.RoutingTable.AutoRefresh,

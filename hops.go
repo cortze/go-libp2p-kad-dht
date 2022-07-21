@@ -7,11 +7,12 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// TODO: 	missing unitary test verification
-// 			+ add the code to the query.run() function
-// 			+ is it interesting to keep track of the peer IDs of each lookup?
+// TODO: -- simplyfy the tree by removing queryHops (the begining of the tree is always the key that we are seatching for)
+type Hops struct {
+	Total     int
+	ToClosest int
+}
 
-// TOTALLY NEW to calculate the HOPS on the lookup
 type queryHops struct {
 	m         sync.Mutex
 	hopRounds map[peer.ID]*hop
@@ -77,14 +78,11 @@ func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
 		for _, hop := range qh.hopRounds {
 			// if the target peer is already in the initial hop list, keep searching for the rest of peers (shortest distance)
 			if p == hop.causePeer {
-				shortestHop = 1
 				continue
 			}
 			dist := hop.getShortestDistToPeer(p)
 			// keep track of the shortest hop distance to the peer (only when the dist > 0)
 			if dist > 0 {
-				// add to dist the hop of the seed peers
-				dist++
 				if shortestHop == 0 {
 					shortestHop = dist
 				}
@@ -96,6 +94,10 @@ func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
 		// Once the shortest distance has been computed, compare it with the biggestHop one ()
 		if shortestHop > biggestSetHop {
 			biggestSetHop = shortestHop // TODO: we still have to figure it out whether we want to add the seed peers as hops
+		}
+
+		if shortestHop == 0 {
+			log.Panicf("peer %s not found in set of hops", p)
 		}
 	}
 
@@ -127,7 +129,7 @@ func (qh *queryHops) getHops() int {
 			maxHops = auxHops
 		}
 	}
-	return maxHops + 1 // add the first hop of searching in the routing table
+	return maxHops // the first hop is always our self-host peer id, so don't count it
 }
 
 func (qh *queryHops) searchPeer(peerID peer.ID) (*hop, bool) {

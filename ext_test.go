@@ -68,9 +68,9 @@ func TestHungRequest(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 
-		var totalHops, hopsForClosest int32
+		var hops Hops
 
-		_, err := d.GetClosestPeers(ctx1, testCaseCids[0].KeyString(), &totalHops, &hopsForClosest)
+		_, err := d.GetClosestPeers(ctx1, testCaseCids[0].KeyString(), &hops)
 		done <- err
 	}()
 

@@ -65,14 +65,13 @@ func (dht *IpfsDHT) PutValue(ctx context.Context, key string, value []byte, opts
 		return err
 	}
 
-	var totalHops, hopsForClosest int32
-	peers, err := dht.GetClosestPeers(ctx, key, &totalHops, &hopsForClosest)
+	var hops Hops
+	peers, err := dht.GetClosestPeers(ctx, key, &hops)
 	if err != nil {
 		return err
 	}
 
-	_ = totalHops
-	_ = hopsForClosest
+	_ = hops
 
 	wg := sync.WaitGroup{}
 	for _, p := range peers {
@@ -154,8 +153,9 @@ func (dht *IpfsDHT) SearchValue(ctx context.Context, key string, opts ...routing
 	}
 
 	stopCh := make(chan struct{})
-	var totalHops, hopsForClosest int32
-	valCh, lookupRes := dht.getValues(ctx, key, &totalHops, &hopsForClosest, stopCh)
+	var hops Hops
+
+	valCh, lookupRes := dht.getValues(ctx, key, &hops, stopCh)
 
 	out := make(chan []byte)
 	go func() {
@@ -274,7 +274,7 @@ func (dht *IpfsDHT) updatePeerValues(ctx context.Context, key string, val []byte
 	}
 }
 
-func (dht *IpfsDHT) getValues(ctx context.Context, key string, totalHops *int32, hopsForClosest *int32, stopQuery chan struct{}) (<-chan recvdVal, <-chan *lookupWithFollowupResult) {
+func (dht *IpfsDHT) getValues(ctx context.Context, key string, hops *Hops, stopQuery chan struct{}) (<-chan recvdVal, <-chan *lookupWithFollowupResult) {
 	valCh := make(chan recvdVal, 1)
 	lookupResCh := make(chan *lookupWithFollowupResult, 1)
 
@@ -293,7 +293,7 @@ func (dht *IpfsDHT) getValues(ctx context.Context, key string, totalHops *int32,
 	go func() {
 		defer close(valCh)
 		defer close(lookupResCh)
-		lookupRes, err := dht.runLookupWithFollowup(ctx, key, totalHops, hopsForClosest,
+		lookupRes, err := dht.runLookupWithFollowup(ctx, key, hops,
 			func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 				// For DHT query command
 				routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -412,21 +412,14 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	}
 
 	var exceededDeadline bool
-	var totalHops int32
-	var hopsForClosest int32
-	peers, err := dht.GetClosestPeers(closerCtx, string(keyMH), &totalHops, &hopsForClosest)
+	var hops *Hops
 
 	// check if the context has a given value (pointer for the number of hops)
-	if v := ctx.Value(ContextKey("totalHops")); v != nil {
-		pointer := v.(*int32)
-		*pointer = totalHops
+	if v := ctx.Value(ContextKey("hops")); v != nil {
+		hops = v.(*Hops)
 	}
 
-	// check if the context has a given value (pointer for the number of hops)
-	if v := ctx.Value(ContextKey("hopsForClosests")); v != nil {
-		pointer := v.(*int32)
-		*pointer = hopsForClosest
-	}
+	peers, err := dht.GetClosestPeers(closerCtx, string(keyMH), hops)
 
 	switch err {
 	case context.DeadlineExceeded:
@@ -496,13 +489,13 @@ func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count i
 
 	keyMH := key.Hash()
 
-	var totalHops, hopsForClosest int32
+	var hops Hops
 	logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
-	go dht.findProvidersAsyncRoutine(ctx, keyMH, count, &totalHops, &hopsForClosest, peerOut)
+	go dht.findProvidersAsyncRoutine(ctx, keyMH, count, &hops, peerOut)
 	return peerOut
 }
 
-func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, totalHops *int32, hopsForClosest *int32, peerOut chan peer.AddrInfo) {
+func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, hops *Hops, peerOut chan peer.AddrInfo) {
 	defer close(peerOut)
 
 	findAll := count == 0
@@ -534,7 +527,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		}
 	}
 
-	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key), totalHops, hopsForClosest,
+	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key), hops,
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -602,8 +595,8 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 		return pi, nil
 	}
 
-	var totalHops, hopsForClosest int32
-	lookupRes, err := dht.runLookupWithFollowup(ctx, string(id), &totalHops, &hopsForClosest,
+	var hops Hops
+	lookupRes, err := dht.runLookupWithFollowup(ctx, string(id), &hops,
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -631,8 +624,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 		},
 	)
 
-	_ = totalHops
-	_ = hopsForClosest
+	_ = hops
 
 	if err != nil {
 		return peer.AddrInfo{}, err

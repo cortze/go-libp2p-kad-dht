@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	"github.com/libp2p/go-libp2p-core/peer"
-	//log "github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 func TestHop(t *testing.T) {
-	//log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.InfoLevel)
 
 	//  schema:
 	// peer 0 	-- peer 1
@@ -54,27 +54,45 @@ func TestHop(t *testing.T) {
 	// test the shortest hop to a given peer
 	shortestHop := hop.getShortestDistToPeer(peerIDSet[3])
 	require.Equal(t, 2, shortestHop)
+
+	shortestHop = hop.getShortestDistToPeer(peerIDSet[2])
+	require.Equal(t, 1, shortestHop)
+
+	shortestHop = hop.getShortestDistToPeer(peerIDSet[1])
+	require.Equal(t, 1, shortestHop)
+
+	shortestHop = hop.getShortestDistToPeer(peerIDSet[0])
+	require.Equal(t, 0, shortestHop)
 }
 
 func TestHopsQuery(t *testing.T) {
 
 	//  schema:
-	// peer 0 	-- peer 2	-- peer 8	-- peer 5
-	// 			-- peer 3	-- peer 6
+	// peer 0 	-- peer 2	-- peer 6	-- peer 7
+	// 					   `-- peer 7	-- peer 6
+	// 		   `-- peer 3	-- peer 8	-- peer 7
+	// 								   `-- peer 6
+	// 					   `-- peer 6
 	//
-	// peer 1 	-- peer 4	-- peer 6	-- peer 7
-	// 			-- peer 5	-- peer 7
+	// peer 1 	-- peer 4	-- peer 7
+	//
+	// 			-- peer 5	-- peer 9 	-- peer 7
+	//								   `-- peer 6
+	// 		    		   `-- peer 10 	-- peer 11	--peer6
 
 	peerByteSet := []string{
-		"0",
-		"1",
-		"2",
-		"3",
-		"4",
-		"5",
-		"6",
-		"7",
-		"8"}
+		"0000",
+		"1111",
+		"2222",
+		"3333",
+		"4444",
+		"5555",
+		"6666",
+		"7777",
+		"8888",
+		"aaaa",
+		"bbbb",
+		"cccc"}
 
 	var peerIDSet []peer.ID
 	// compose peer.IDs from strings (casted to bytes)
@@ -86,76 +104,151 @@ func TestHopsQuery(t *testing.T) {
 	// generate the parent queryHop
 	qHop := newQueryHops()
 
-	// add peer 3 and 4 as child hops from 1
+	// ---- level 1 and 2 of the tree ----
+	// add peer 2 and 3 as child hops from 0
 	qHop.addNewPeer(peerIDSet[0], peerIDSet[2])
 	qHop.addNewPeer(peerIDSet[0], peerIDSet[3])
 
 	require.Equal(t, 2, qHop.hopRounds[peerIDSet[0]].len())
 
-	// add peer 5 and 6 as child hops from 2
+	// add peer 4 and 5 as child hops from 1
 	qHop.addNewPeer(peerIDSet[1], peerIDSet[4])
 	qHop.addNewPeer(peerIDSet[1], peerIDSet[5])
 
+	hops := qHop.getHops()
+	require.Equal(t, 2, hops)
+
 	require.Equal(t, 2, qHop.hopRounds[peerIDSet[1]].len())
 
-	// add peer 7 as child hop from 4 and 5
+	// ---- level 3 of the tree ----
+	// add peer 6 as child hop from 2 and 3
+	qHop.addNewPeer(peerIDSet[2], peerIDSet[6])
 	qHop.addNewPeer(peerIDSet[3], peerIDSet[6])
-	qHop.addNewPeer(peerIDSet[4], peerIDSet[6])
 
-	// add peer 9 as child of 3
-	qHop.addNewPeer(peerIDSet[2], peerIDSet[8])
+	// add peer 7 as child hop from 2 and 4
+	qHop.addNewPeer(peerIDSet[2], peerIDSet[7])
+	qHop.addNewPeer(peerIDSet[4], peerIDSet[7])
 
-	// add peer 5 as child of 9
-	qHop.addNewPeer(peerIDSet[8], peerIDSet[4])
+	// add 8 from 3
+	qHop.addNewPeer(peerIDSet[3], peerIDSet[8])
 
+	hops = qHop.getHops()
+	require.Equal(t, 3, hops)
+
+	// ---- level 4 of the tree ----
+	// add 6 and 7 from 8
+	qHop.addNewPeer(peerIDSet[8], peerIDSet[6])
+	qHop.addNewPeer(peerIDSet[8], peerIDSet[7])
+
+	// add peer 7 and 6 to depend from eachother
+	qHop.addNewPeer(peerIDSet[6], peerIDSet[7])
+	qHop.addNewPeer(peerIDSet[7], peerIDSet[6])
+
+	// add 9 and 10 from 5
+	qHop.addNewPeer(peerIDSet[5], peerIDSet[9])
+	qHop.addNewPeer(peerIDSet[5], peerIDSet[10])
+
+	// add 6 and 7 from 9
+	qHop.addNewPeer(peerIDSet[9], peerIDSet[6])
+	qHop.addNewPeer(peerIDSet[9], peerIDSet[7])
+
+	// add 11 from 10
+	qHop.addNewPeer(peerIDSet[10], peerIDSet[11])
+
+	hops = qHop.getHops()
+	require.Equal(t, 4, hops)
+
+	// TEMPORARY
+	require.Equal(t, 2, qHop.hopRounds[peerIDSet[0]].len())
+
+	// ---- level 5 of the tree ----
+	// add 6 from 11
+	qHop.addNewPeer(peerIDSet[11], peerIDSet[6])
+
+	hops = qHop.getHops()
+	require.Equal(t, 5, hops)
+
+	// TEMPORARY
+	require.Equal(t, 2, qHop.hopRounds[peerIDSet[0]].len())
+
+	// ---- TESTING THE LOGIC / DEPTH ---
+
+	// level 1
+	h0, ok := qHop.searchPeer(peerIDSet[0])
+	require.Equal(t, true, ok)
+	h1, ok := qHop.searchPeer(peerIDSet[1])
+	require.Equal(t, true, ok)
+
+	require.Equal(t, 2, h0.len())
+	require.Equal(t, 2, h1.len())
+
+	// level 2
 	h2, ok := qHop.searchPeer(peerIDSet[2])
 	require.Equal(t, true, ok)
 	h3, ok := qHop.searchPeer(peerIDSet[3])
 	require.Equal(t, true, ok)
 	h4, ok := qHop.searchPeer(peerIDSet[4])
 	require.Equal(t, true, ok)
-
-	require.Equal(t, 1, h2.len())
-	require.Equal(t, 1, h3.len())
-	require.Equal(t, 1, h4.len())
-
-	// add peer 8 as child hop from 6 and 7
-	qHop.addNewPeer(peerIDSet[5], peerIDSet[7])
-	qHop.addNewPeer(peerIDSet[6], peerIDSet[7])
-
 	h5, ok := qHop.searchPeer(peerIDSet[5])
 	require.Equal(t, true, ok)
+
+	require.Equal(t, 2, h2.len())
+	require.Equal(t, 2, h3.len())
+	require.Equal(t, 1, h4.len())
+	require.Equal(t, 2, h5.len())
+
+	// level 3
 	h6, ok := qHop.searchPeer(peerIDSet[6])
 	require.Equal(t, true, ok)
+	h7, ok := qHop.searchPeer(peerIDSet[7])
+	require.Equal(t, true, ok)
+	h8, ok := qHop.searchPeer(peerIDSet[8])
+	require.Equal(t, true, ok)
+	h9, ok := qHop.searchPeer(peerIDSet[9])
+	require.Equal(t, true, ok)
+	h10, ok := qHop.searchPeer(peerIDSet[10])
+	require.Equal(t, true, ok)
 
-	require.Equal(t, 1, h5.len())
 	require.Equal(t, 1, h6.len())
+	require.Equal(t, 1, h7.len())
+	require.Equal(t, 2, h8.len())
+	require.Equal(t, 2, h9.len())
+	require.Equal(t, 1, h10.len())
 
-	hops := qHop.getHops()
-	require.Equal(t, 4, hops)
+	// level 4
+	h11, ok := qHop.searchPeer(peerIDSet[11])
+	require.Equal(t, true, ok)
+	require.Equal(t, 1, h11.len())
 
-	// test the shortest hop to a given peer
+	// -- Test the Tree Depth
+
+	hops = qHop.getHops()
+	require.Equal(t, 5, hops)
+
+	// -- Test the shortest hop to a given peer
 	var peerArr1 []peer.ID = []peer.ID{peerIDSet[2], peerIDSet[7]}
 
 	shortestHop := qHop.getHopsForPeerSet(peerArr1)
 	require.Equal(t, 3, shortestHop)
 
-	// test the shortest hop to a given peer
 	var peerArr2 []peer.ID = []peer.ID{peerIDSet[4], peerIDSet[5]}
 
 	shortestHop = qHop.getHopsForPeerSet(peerArr2)
 	require.Equal(t, 2, shortestHop)
 
-	// test the shortest hop to a given peer
 	var peerArr3 []peer.ID = []peer.ID{peerIDSet[6], peerIDSet[7]}
 
 	shortestHop = qHop.getHopsForPeerSet(peerArr3)
 	require.Equal(t, 3, shortestHop)
 
-	// test the shortest hop to a given peer
 	var peerArr4 []peer.ID = []peer.ID{peerIDSet[0], peerIDSet[1]}
 
 	shortestHop = qHop.getHopsForPeerSet(peerArr4)
 	require.Equal(t, 1, shortestHop)
+
+	var peerArr5 []peer.ID = []peer.ID{peerIDSet[11], peerIDSet[6]}
+
+	shortestHop = qHop.getHopsForPeerSet(peerArr5)
+	require.Equal(t, 4, shortestHop)
 
 }

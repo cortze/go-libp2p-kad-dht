@@ -67,8 +67,9 @@ type lookupWithFollowupResult struct {
 	peers []peer.ID            // the top K not unreachable peers at the end of the query
 	state []qpeerset.PeerState // the peer states at the end of the query
 
-	// keep track of the hops performed to find the closest peers
-	hops int32
+	// keep track of the totalHops performed to find the closest peers
+	totalHops      int32
+	hopsForClosest int32
 
 	// indicates that neither the lookup nor the followup has been prematurely terminated by an external condition such
 	// as context cancellation or the stop function being called.
@@ -82,7 +83,7 @@ type lookupWithFollowupResult struct {
 //
 // After the lookup is complete the query function is run (unless stopped) against all of the top K peers from the
 // lookup that have not already been successfully queried.
-func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, hops *int32, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, totalHops *int32, hopsForClosest *int32, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	// run the query
 	lookupRes, err := dht.runQuery(ctx, target, queryFn, stopFn)
 	if err != nil {
@@ -148,8 +149,9 @@ processFollowUp:
 		}
 	}
 
-	// add the number of hops to the pointer given by the caller
-	atomic.StoreInt32(hops, lookupRes.hops)
+	// add the number of totalHops to the pointer given by the caller
+	atomic.StoreInt32(totalHops, lookupRes.totalHops)
+	atomic.StoreInt32(hopsForClosest, lookupRes.hopsForClosest)
 
 	return lookupRes, nil
 }
@@ -245,15 +247,17 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 		sortedPeers = sortedPeers[:q.dht.bucketSize]
 	}
 
-	// get the number of hops from the lookup
+	// get the number of totalHops from the lookup
 	h := q.queryHops.getHops()
+	closestH := q.queryHops.getHopsForPeerSet(sortedPeers)
 
 	// return the top K not unreachable peers as well as their states at the end of the query
 	res := &lookupWithFollowupResult{
-		peers:     sortedPeers,
-		state:     make([]qpeerset.PeerState, len(sortedPeers)),
-		hops:      int32(h),
-		completed: completed,
+		peers:          sortedPeers,
+		state:          make([]qpeerset.PeerState, len(sortedPeers)),
+		totalHops:      int32(h),
+		hopsForClosest: int32(closestH),
+		completed:      completed,
 	}
 
 	for i, p := range sortedPeers {

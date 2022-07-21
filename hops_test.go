@@ -11,7 +11,13 @@ import (
 func TestHop(t *testing.T) {
 	//log.SetLevel(log.DebugLevel)
 
+	//  schema:
+	// peer 0 	-- peer 1
+	// 			-- peer 2	-- peer 3
+	//
+
 	peerByteSet := []string{
+		"0",
 		"1",
 		"2",
 		"3"}
@@ -23,29 +29,44 @@ func TestHop(t *testing.T) {
 		peerIDSet = append(peerIDSet, p)
 	}
 
-	// generate hop from peer 1
+	// generate hop from peer 0
 	hop := newHop(peerIDSet[0])
 
-	// generate hop for peer 2 and 3
+	// generate hop for peer 1 and 2
 	hop1 := newHop(peerIDSet[1])
 	hop2 := newHop(peerIDSet[2])
+	hop3 := newHop(peerIDSet[3])
 
-	// add subhops of peers 2 and 3 from the main peer 1
+	// add subhops of peers 1 and 2 from the main peer 0
 	hop.addSubHop(hop1)
 	hop.addSubHop(hop2)
 
+	hop2.addSubHop(hop3)
+
 	require.Equal(t, hop.len(), 2)
 	require.Equal(t, hop1.len(), 0)
-	require.Equal(t, hop2.len(), 0)
+	require.Equal(t, hop2.len(), 1)
 
 	// check the len of the hops
-	l := hop.GetNumberOfHops()
-	require.Equal(t, 1, l)
+	l := hop.getNumberOfHops()
+	require.Equal(t, 2, l)
 
+	// test the shortest hop to a given peer
+	shortestHop := hop.getShortestDistToPeer(peerIDSet[3])
+	require.Equal(t, 2, shortestHop)
 }
 
 func TestHopsQuery(t *testing.T) {
+
+	//  schema:
+	// peer 0 	-- peer 2	-- peer 8	-- peer 5
+	// 			-- peer 3	-- peer 6
+	//
+	// peer 1 	-- peer 4	-- peer 6	-- peer 7
+	// 			-- peer 5	-- peer 7
+
 	peerByteSet := []string{
+		"0",
 		"1",
 		"2",
 		"3",
@@ -77,10 +98,15 @@ func TestHopsQuery(t *testing.T) {
 
 	require.Equal(t, 2, qHop.hopRounds[peerIDSet[1]].len())
 
-	// add peer 7 as child hop from 3, 4 and 5
-	qHop.addNewPeer(peerIDSet[2], peerIDSet[6])
+	// add peer 7 as child hop from 4 and 5
 	qHop.addNewPeer(peerIDSet[3], peerIDSet[6])
 	qHop.addNewPeer(peerIDSet[4], peerIDSet[6])
+
+	// add peer 9 as child of 3
+	qHop.addNewPeer(peerIDSet[2], peerIDSet[8])
+
+	// add peer 5 as child of 9
+	qHop.addNewPeer(peerIDSet[8], peerIDSet[4])
 
 	h2, ok := qHop.searchPeer(peerIDSet[2])
 	require.Equal(t, true, ok)
@@ -107,5 +133,29 @@ func TestHopsQuery(t *testing.T) {
 
 	hops := qHop.getHops()
 	require.Equal(t, 4, hops)
+
+	// test the shortest hop to a given peer
+	var peerArr1 []peer.ID = []peer.ID{peerIDSet[2], peerIDSet[7]}
+
+	shortestHop := qHop.getHopsForPeerSet(peerArr1)
+	require.Equal(t, 3, shortestHop)
+
+	// test the shortest hop to a given peer
+	var peerArr2 []peer.ID = []peer.ID{peerIDSet[4], peerIDSet[5]}
+
+	shortestHop = qHop.getHopsForPeerSet(peerArr2)
+	require.Equal(t, 2, shortestHop)
+
+	// test the shortest hop to a given peer
+	var peerArr3 []peer.ID = []peer.ID{peerIDSet[6], peerIDSet[7]}
+
+	shortestHop = qHop.getHopsForPeerSet(peerArr3)
+	require.Equal(t, 3, shortestHop)
+
+	// test the shortest hop to a given peer
+	var peerArr4 []peer.ID = []peer.ID{peerIDSet[0], peerIDSet[1]}
+
+	shortestHop = qHop.getHopsForPeerSet(peerArr4)
+	require.Equal(t, 1, shortestHop)
 
 }

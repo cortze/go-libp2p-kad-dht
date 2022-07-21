@@ -50,19 +50,75 @@ func (qh *queryHops) addNewPeer(causePeer peer.ID, p peer.ID) {
 		h = newHop(p)
 	}
 
-	// link always the child hop to the parent hop
-	parentHop.addSubHop(h)
+	// only add the hop to the parent if there wasn't any child peer already in the tree
+	if h.len() == 0 {
+		// link always the child hop to the parent hop
+		parentHop.addSubHop(h)
+	}
+
+}
+
+// means go through the tree len(peerSet) times to get the total of hops to discover the peers
+func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
+	qh.m.Lock()
+	defer qh.m.Unlock()
+
+	// although the hop gives you the minum distance to the peer,
+	// whe want the biggest one of those shortest distances
+	var biggestSetHop int
+
+	// iter through the peer set to see the sortest depth at when we found it
+	for _, p := range peerSet {
+		var shortestHop int
+		for _, hop := range qh.hopRounds {
+			// if the target peer is already in the initial hop list, keep searching for the rest of peers (shortest distance)
+			if p == hop.causePeer {
+				shortestHop = 1
+				continue
+			}
+			dist := hop.getShortestDistToPeer(p)
+			// keep track of the shortest hop distance to the peer (only when the dist > 0)
+			if dist > 0 {
+				// add to dist the hop of the seed peers
+				dist++
+				if shortestHop == 0 {
+					shortestHop = dist
+				}
+				if dist < shortestHop {
+					shortestHop = dist
+				}
+			}
+		}
+		// Once the shortest distance has been computed, compare it with the biggestHop one ()
+		if shortestHop > biggestSetHop {
+			biggestSetHop = shortestHop // TODO: we still have to figure it out whether we want to add the seed peers as hops
+		}
+	}
+
+	if biggestSetHop == 0 {
+		log.Warn("peers in closest on, not found in hops tree")
+	}
+
+	log.WithFields(log.Fields{
+		"peerSetLen": len(peerSet),
+		"hops":       biggestSetHop,
+	}).Debug("Adding new peer")
+
+	return biggestSetHop
+
 }
 
 func (qh *queryHops) getHops() int {
 	qh.m.Lock()
 	defer qh.m.Unlock()
 
+	//peerCache := make(map[peer.ID]bool)
 	var maxHops int
 
 	// go through the entire tree checking which is the largest branch
 	for _, v := range qh.hopRounds {
-		auxHops := v.GetNumberOfHops() // no previous hops since we are at parent
+		//	peerCache[v.causePeer] = true            // add to the cache the seed peers
+		auxHops := v.getNumberOfHops() // no previous hops since we are at parent
 		if auxHops > maxHops {
 			maxHops = auxHops
 		}
@@ -140,20 +196,23 @@ func (h *hop) addSubHop(subHop *hop) {
 	h.hops[subHop.causePeer] = subHop
 }
 
-func (h *hop) CausePeer() peer.ID {
+func (h *hop) getCausePeer() peer.ID {
 	h.m.Lock()
 	defer h.m.Unlock()
 
 	return h.causePeer
 }
 
-func (h *hop) Hops() map[peer.ID]*hop {
+func (h *hop) getHops() map[peer.ID]*hop {
 	h.m.Lock()
 	defer h.m.Unlock()
 	return h.hops
 }
 
-func (h *hop) GetNumberOfHops() int {
+func (h *hop) getNumberOfHops() int {
+	h.m.Lock()
+	defer h.m.Unlock()
+
 	var parentBase, maxHops int
 
 	// iter through the hops asking for their lenght
@@ -161,10 +220,48 @@ func (h *hop) GetNumberOfHops() int {
 		parentBase += 1
 	}
 	for _, v := range h.hops {
-		hopsNumber := v.GetNumberOfHops()
+		hopsNumber := v.getNumberOfHops()
 		if hopsNumber > maxHops {
 			maxHops = hopsNumber
 		}
 	}
 	return parentBase + maxHops
+}
+
+func (h *hop) getShortestDistToPeer(target peer.ID) int {
+	h.m.Lock()
+	defer h.m.Unlock()
+
+	depth := 1
+	var shortestDist int // init at 0 to show that we didn't found it
+
+	// check if the peer is in the current list of hops (return depth straight away)
+	for _, nextHop := range h.hops {
+		if target == nextHop.causePeer {
+			return depth
+		}
+	}
+
+	// if the peer wasn't inside the direct hop peers, call following ones
+	for _, nextHop := range h.hops {
+		hopCount := nextHop.getShortestDistToPeer(target)
+		// check if the hopCount is smaller that the original
+		// track if original is still 0 and if the new one is also 0
+		if hopCount > 0 {
+			if shortestDist == 0 {
+				shortestDist = hopCount
+				continue
+			}
+			if hopCount < shortestDist {
+				shortestDist = hopCount
+			}
+		}
+	}
+	// f we found the peer, add the depth to the measurement
+	if shortestDist > 0 {
+		shortestDist += depth // add the current depth to the shortest distance
+	}
+	// return the shortest distance
+	return shortestDist
+
 }

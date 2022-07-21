@@ -38,24 +38,28 @@ func (qh *queryHops) addNewPeer(causePeer peer.ID, p peer.ID) {
 	if !ok {
 		// if casue peer not in the tree, create new entrance an level 0
 		parentHop = newHop(causePeer)
+		parentHop.original = true
 
 		// add the parent hop to the level 0 tree
 		qh.hopRounds[causePeer] = parentHop
 	}
 
-	// check whether there is already a peer with the same ID in the tree
-	h, ok := qh.searchPeer(p)
-	if !ok {
-		// if the peer is not there yet at the tree, create a new instance and link it to parent hop
+	// check whether there is already an original peer with the same ID in the tree
+	var h *hop
+	_, ok = qh.searchPeer(p)
+	// to avoid having an endless loop over links between hops, create non-original childs to fill the tree
+	if ok {
+		// if the there is a peer with the same PeerId, we create a replica with origin=false
 		h = newHop(p)
-	}
+		h.original = false
+	} else {
+		// if the there isn't a peer with the same PeerId, we create an original one
+		h = newHop(p)
+		h.original = true
 
-	// only add the hop to the parent if there wasn't any child peer already in the tree
-	if h.len() == 0 {
-		// link always the child hop to the parent hop
-		parentHop.addSubHop(h)
 	}
-
+	// link always the child hop to the parent hop
+	parentHop.addSubHop(h)
 }
 
 // means go through the tree len(peerSet) times to get the total of hops to discover the peers
@@ -133,11 +137,14 @@ func (qh *queryHops) searchPeer(peerID peer.ID) (*hop, bool) {
 
 	// iter through the number of initial hops
 	for p, h := range qh.hopRounds {
-		if p == peerID {
+		if p == peerID && h.original {
 			return h, true
 		}
 		auxH, ok := h.searchPeer(peerID)
 		if ok {
+			if !auxH.original {
+				log.Panic("pointer to non-original hop has been received at QueryHops")
+			}
 			return auxH, true
 		}
 	}
@@ -148,6 +155,7 @@ func (qh *queryHops) searchPeer(peerID peer.ID) (*hop, bool) {
 type hop struct {
 	m         sync.Mutex
 	causePeer peer.ID
+	original  bool // identify if this peer is a original of existing one (came later in the lookup)
 	hops      map[peer.ID]*hop
 }
 
@@ -158,6 +166,7 @@ func newHop(causePeer peer.ID) *hop {
 
 	return &hop{
 		causePeer: causePeer,
+		original:  false,
 		hops:      make(map[peer.ID]*hop),
 	}
 }
@@ -176,11 +185,15 @@ func (h *hop) searchPeer(peerID peer.ID) (*hop, bool) {
 
 	// iter through each of the hops in the list
 	for p, hp := range h.hops {
-		if p == peerID {
+		// return only the hop of the peer that is not a original of an existing one
+		if p == peerID && hp.original {
 			return hp, true
 		}
 		auxH, ok := hp.searchPeer(peerID)
 		if ok {
+			if !auxH.original {
+				log.Panic("pointer to non-original hop has been received at Hop")
+			}
 			return auxH, true
 		}
 	}

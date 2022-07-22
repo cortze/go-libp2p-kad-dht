@@ -384,8 +384,9 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	keyMH := key.Hash()
 	logger.Debugw("providing", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
 
+	// don't add ourselfs because we want to know if the PRs are retrievable while looking for a CID
 	// add self locally
-	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
+	// dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
 	if !brdcst {
 		return nil
 	}

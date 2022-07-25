@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"time"
 
@@ -39,19 +38,17 @@ var logger = logging.Logger("dht")
 // messageSenderImpl is responsible for sending requests and messages to peers efficiently, including reuse of streams.
 // It also tracks metrics for sent requests and messages.
 type messageSenderImpl struct {
-	host        host.Host // the network services we need
-	smlk        sync.Mutex
-	hydraFilter bool // defines whether we want to ban Hydra peers from beeing connected
-	strmap      map[peer.ID]*peerMessageSender
-	protocols   []protocol.ID
+	host      host.Host // the network services we need
+	smlk      sync.Mutex
+	strmap    map[peer.ID]*peerMessageSender
+	protocols []protocol.ID
 }
 
-func NewMessageSenderImpl(h host.Host, hydraFilter bool, protos []protocol.ID) pb.MessageSender {
+func NewMessageSenderImpl(h host.Host, protos []protocol.ID) pb.MessageSender {
 	return &messageSenderImpl{
-		host:        h,
-		hydraFilter: hydraFilter,
-		strmap:      make(map[peer.ID]*peerMessageSender),
-		protocols:   protos,
+		host:      h,
+		strmap:    make(map[peer.ID]*peerMessageSender),
+		protocols: protos,
 	}
 }
 
@@ -225,22 +222,6 @@ func (ms *peerMessageSender) prep(ctx context.Context) error {
 	nstr, err := ms.m.host.NewStream(ctx, ms.p, ms.m.protocols...)
 	if err != nil {
 		return err
-	}
-
-	// check whether the peer that we connected is an Hydra or not
-	if ms.m.hydraFilter {
-		var useragent string
-		userAgentInterf, err := ms.m.host.Peerstore().Get(ms.p, "AgentVersion")
-		if err != nil {
-			useragent = "NoUserAgentDefined"
-		} else {
-			useragent = userAgentInterf.(string)
-		}
-		// check if the user-agent contains "hydra-booster"
-		if strings.Contains(useragent, "hydra-booster") {
-			// ignore open stream and return err
-			return fmt.Errorf(HydraPeerError)
-		}
 	}
 
 	ms.r = msgio.NewVarintReaderSize(nstr, network.MessageSizeMax)

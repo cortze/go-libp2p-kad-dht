@@ -26,7 +26,10 @@ import (
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 )
 
-var dhtReadMessageTimeout = 10 * time.Second
+const (
+	dhtReadMessageTimeout = 10 * time.Second
+	HydraPeerError        = "messaging hydra node"
+)
 
 // ErrReadTimeout is an error that occurs when no message is read within the timeout period.
 var ErrReadTimeout = fmt.Errorf("timed out reading response")
@@ -224,6 +227,22 @@ func (ms *peerMessageSender) prep(ctx context.Context) error {
 	nstr, err := ms.m.host.NewStream(ctx, ms.p, ms.m.protocols...)
 	if err != nil {
 		return err
+	}
+
+	// check whether the peer that we connected is an Hydra or not
+	if ms.m.hydraFilter {
+		var useragent string
+		userAgentInterf, err := ms.m.host.Peerstore().Get(ms.p, "AgentVersion")
+		if err != nil {
+			useragent = "NoUserAgentDefined"
+		} else {
+			useragent = userAgentInterf.(string)
+		}
+		// check if the user-agent contains "hydra-booster"
+		if strings.Contains(useragent, "hydra-booster") {
+			// ignore open stream and return err
+			return fmt.Errorf(HydraPeerError)
+		}
 	}
 
 	ms.r = msgio.NewVarintReaderSize(nstr, network.MessageSizeMax)

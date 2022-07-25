@@ -229,22 +229,6 @@ func (ms *peerMessageSender) prep(ctx context.Context) error {
 		return err
 	}
 
-	// check whether the peer that we connected is an Hydra or not
-	if ms.m.hydraFilter {
-		var useragent string
-		userAgentInterf, err := ms.m.host.Peerstore().Get(ms.p, "AgentVersion")
-		if err != nil {
-			useragent = "NoUserAgentDefined"
-		} else {
-			useragent = userAgentInterf.(string)
-		}
-		// check if the user-agent contains "hydra-booster"
-		if strings.Contains(useragent, "hydra-booster") {
-			// ignore open stream and return err
-			return fmt.Errorf(HydraPeerError)
-		}
-	}
-
 	ms.r = msgio.NewVarintReaderSize(nstr, network.MessageSizeMax)
 	ms.s = nstr
 

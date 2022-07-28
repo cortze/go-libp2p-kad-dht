@@ -14,53 +14,67 @@ type Hops struct {
 }
 
 type queryHops struct {
-	m         sync.Mutex
-	hopRounds map[peer.ID]*hop
+	m       sync.Mutex
+	tree    map[peer.ID]*hop
+	ogPeers map[peer.ID]*hop
 }
 
 func newQueryHops() *queryHops {
-	log.Debug("New query hops")
+	log.Trace("New query hops")
 	return &queryHops{
-		hopRounds: make(map[peer.ID]*hop),
+		tree:    make(map[peer.ID]*hop),
+		ogPeers: make(map[peer.ID]*hop),
 	}
 }
 
-func (qh *queryHops) addNewPeer(causePeer peer.ID, p peer.ID) {
+func (qh *queryHops) addNewPeers(causePeer peer.ID, p []peer.ID) {
 	qh.m.Lock()
 	defer qh.m.Unlock()
 
 	log.WithFields(log.Fields{
 		"cause": causePeer.String(),
-		"peer":  p.String(),
-	}).Debug("Adding new peer")
+		"peer":  len(p),
+	}).Trace("Adding new peers")
 
 	// get parent hop
-	parentHop, ok := qh.searchPeer(causePeer)
+	parentHop, ok := qh.searchOgPeer(causePeer)
 	if !ok {
 		// if casue peer not in the tree, create new entrance an level 0
 		parentHop = newHop(causePeer)
 		parentHop.original = true
 
 		// add the parent hop to the level 0 tree
-		qh.hopRounds[causePeer] = parentHop
+		qh.tree[causePeer] = parentHop
+		qh.ogPeers[causePeer] = parentHop
 	}
 
-	// check whether there is already an original peer with the same ID in the tree
-	var h *hop
-	_, ok = qh.searchPeer(p)
-	// to avoid having an endless loop over links between hops, create non-original childs to fill the tree
-	if ok {
-		// if the there is a peer with the same PeerId, we create a replica with origin=false
-		h = newHop(p)
-		h.original = false
-	} else {
-		// if the there isn't a peer with the same PeerId, we create an original one
-		h = newHop(p)
-		h.original = true
+	// iter throught the new peers to add to the tree
+	for _, pi := range p {
 
+		log.WithFields(log.Fields{
+			"cause": causePeer.String(),
+			"peer":  pi.String(),
+		}).Trace("Adding new peer")
+
+		// check whether there is already an original peer with the same ID in the tree
+		var h *hop
+		_, ok = qh.searchOgPeer(pi)
+
+		// to avoid having an endless loop over links between hops, create non-original childs to fill the tree
+		if ok {
+			// if the there is a peer with the same PeerId, we create a replica with origin=false
+			h = newHop(pi)
+			h.original = false
+		} else {
+			// if the there isn't a peer with the same PeerId, we create an original one
+			h = newHop(pi)
+			h.original = true
+			qh.ogPeers[pi] = h
+
+		}
+		// link always the child hop to the parent hop
+		parentHop.addSubHop(h)
 	}
-	// link always the child hop to the parent hop
-	parentHop.addSubHop(h)
 }
 
 // means go through the tree len(peerSet) times to get the total of hops to discover the peers
@@ -75,7 +89,7 @@ func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
 	// iter through the peer set to see the sortest depth at when we found it
 	for _, p := range peerSet {
 		var shortestHop int
-		for _, hop := range qh.hopRounds {
+		for _, hop := range qh.tree {
 			// if the target peer is already in the initial hop list, keep searching for the rest of peers (shortest distance)
 			if p == hop.causePeer {
 				continue
@@ -96,19 +110,12 @@ func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
 			biggestSetHop = shortestHop // TODO: we still have to figure it out whether we want to add the seed peers as hops
 		}
 
-		if shortestHop == 0 {
-			log.Panicf("peer %s not found in set of hops", p)
-		}
-	}
-
-	if biggestSetHop == 0 {
-		log.Warn("peers in closest on, not found in hops tree")
 	}
 
 	log.WithFields(log.Fields{
 		"peerSetLen": len(peerSet),
 		"hops":       biggestSetHop,
-	}).Debug("Adding new peer")
+	}).Trace("Adding new peer")
 
 	return biggestSetHop
 
@@ -122,7 +129,7 @@ func (qh *queryHops) getHops() int {
 	var maxHops int
 
 	// go through the entire tree checking which is the largest branch
-	for _, v := range qh.hopRounds {
+	for _, v := range qh.tree {
 		//	peerCache[v.causePeer] = true            // add to the cache the seed peers
 		auxHops := v.getNumberOfHops() // no previous hops since we are at parent
 		if auxHops > maxHops {
@@ -132,26 +139,32 @@ func (qh *queryHops) getHops() int {
 	return maxHops // the first hop is always our self-host peer id, so don't count it
 }
 
-func (qh *queryHops) searchPeer(peerID peer.ID) (*hop, bool) {
+func (qh *queryHops) searchOgPeer(peerID peer.ID) (*hop, bool) {
 	log.WithFields(log.Fields{
 		"peer": peerID.String(),
-	}).Debug("searching peer")
+	}).Trace("searching peer")
 
-	// iter through the number of initial hops
-	for p, h := range qh.hopRounds {
-		if p == peerID && h.original {
-			return h, true
-		}
-		auxH, ok := h.searchPeer(peerID)
-		if ok {
-			if !auxH.original {
-				log.Panic("pointer to non-original hop has been received at QueryHops")
-			}
-			return auxH, true
-		}
-	}
-	// if previosu search didn't succeed, return failure searching
-	return nil, false
+	// iter through the ogPeers tree (optimized version)
+	h, ok := qh.ogPeers[peerID]
+	return h, ok
+
+	// --- Depecated: was adding to much overhead when adding pers ---
+	//
+	// // iter through the number of initial hops
+	// for p, h := range qh.tree {
+	// 	if p == peerID && h.original {
+	// 		return h, true
+	// 	}
+	// 	auxH, ok := h.searchPeer(peerID)
+	// 	if ok {
+	// 		if !auxH.original {
+	// 			log.Panic("pointer to non-original hop has been received at QueryHops")
+	// 		}
+	// 		return auxH, true
+	// 	}
+	// }
+	// // if previosu search didn't succeed, return failure searching
+	// return nil, false
 }
 
 type hop struct {
@@ -164,7 +177,7 @@ type hop struct {
 func newHop(causePeer peer.ID) *hop {
 	log.WithFields(log.Fields{
 		"cause": causePeer.String(),
-	}).Debug("new hop")
+	}).Trace("new hop")
 
 	return &hop{
 		causePeer: causePeer,
@@ -177,13 +190,15 @@ func (h *hop) len() int {
 	return len(h.hops)
 }
 
+// --- Depecated: was adding to much overhead when adding pers ---
+// moved to a OgPeers cache in queryHops
 func (h *hop) searchPeer(peerID peer.ID) (*hop, bool) {
 	h.m.Lock()
 	defer h.m.Unlock()
 
 	log.WithFields(log.Fields{
 		"peer": peerID.String(),
-	}).Debug("searching peer in hop")
+	}).Trace("searching peer in hop")
 
 	// iter through each of the hops in the list
 	for p, hp := range h.hops {
@@ -209,19 +224,6 @@ func (h *hop) addSubHop(subHop *hop) {
 
 	// add it to the map of the hop parent
 	h.hops[subHop.causePeer] = subHop
-}
-
-func (h *hop) getCausePeer() peer.ID {
-	h.m.Lock()
-	defer h.m.Unlock()
-
-	return h.causePeer
-}
-
-func (h *hop) getHops() map[peer.ID]*hop {
-	h.m.Lock()
-	defer h.m.Unlock()
-	return h.hops
 }
 
 func (h *hop) getNumberOfHops() int {

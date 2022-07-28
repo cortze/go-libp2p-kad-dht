@@ -26,7 +26,10 @@ import (
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 )
 
-var dhtReadMessageTimeout = 10 * time.Second
+const (
+	dhtReadMessageTimeout = 10 * time.Second
+	HydraPeerError        = "messaging hydra node"
+)
 
 // ErrReadTimeout is an error that occurs when no message is read within the timeout period.
 var ErrReadTimeout = fmt.Errorf("timed out reading response")

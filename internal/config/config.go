@@ -47,6 +47,7 @@ type Config struct {
 	EnableValues       bool
 	ProviderStore      providers.ProviderStore
 	QueryPeerFilter    QueryFilterFunc
+	BlacklistPeers     map[peer.ID]struct{}
 	MessageSenderFunc  func(h host.Host, protos []protocol.ID) pb.MessageSender
 
 	RoutingTable struct {

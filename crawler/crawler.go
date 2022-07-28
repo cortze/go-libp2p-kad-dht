@@ -122,7 +122,7 @@ type HandleQueryFail func(p peer.ID, err error)
 const dialAddressExtendDur time.Duration = time.Minute * 30
 
 // Run crawls dht peers from an initial seed of `startingPeers`
-func (c *Crawler) Run(ctx context.Context, startingPeers []*peer.AddrInfo, handleSuccess HandleQueryResult, handleFail HandleQueryFail) {
+func (c *Crawler) Run(ctx context.Context, startingPeers []peer.AddrInfo, handleSuccess HandleQueryResult, handleFail HandleQueryFail) {
 	jobs := make(chan peer.ID, 1)
 	results := make(chan *queryResult, 1)
 
@@ -157,7 +157,7 @@ func (c *Crawler) Run(ctx context.Context, startingPeers []*peer.AddrInfo, handl
 			continue
 		}
 
-		toDial = append(toDial, ai)
+		toDial = append(toDial, &ai)
 		peersSeen[ai.ID] = struct{}{}
 	}
 

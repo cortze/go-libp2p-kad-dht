@@ -115,6 +115,9 @@ type IpfsDHT struct {
 	// DHT protocols we can respond to.
 	serverProtocols []protocol.ID
 
+	// blacklisted peers
+	BlacklistPeers map[peer.ID]struct{}
+
 	auto   ModeOpt
 	mode   mode
 	modeLk sync.Mutex
@@ -196,13 +199,20 @@ func New(ctx context.Context, h host.Host, options ...Option) (*IpfsDHT, error) 
 
 	// check if there is any MessageSender in the cfg
 	if cfg.MessageSenderFunc == nil {
-		dht.msgSender = net.NewMessageSenderImpl(h, dht.protocols)
+		dht.msgSender = net.NewMessageSenderImpl(h, dht.protocols, "")
 	} else {
 		dht.msgSender = cfg.MessageSenderFunc(h, dht.protocols)
 	}
 	dht.protoMessenger, err = pb.NewProtocolMessenger(dht.msgSender)
 	if err != nil {
 		return nil, err
+	}
+
+	// Add the blacklist peers to the DHT
+	if cfg.BlacklistPeers == nil {
+		dht.BlacklistPeers = make(map[peer.ID]struct{})
+	} else {
+		dht.BlacklistPeers = cfg.BlacklistPeers
 	}
 
 	dht.testAddressUpdateProcessing = cfg.TestAddressUpdateProcessing
@@ -867,4 +877,20 @@ func (dht *IpfsDHT) maybeAddAddrs(p peer.ID, addrs []ma.Multiaddr, ttl time.Dura
 // as described in GetClosestPeers.
 func (dht *IpfsDHT) GetProvidersFromPeer(ctx context.Context, p peer.ID, key multihash.Multihash) ([]*peer.AddrInfo, []*peer.AddrInfo, error) {
 	return dht.protoMessenger.GetProviders(ctx, p, key)
+}
+
+// IsBlacklisted
+func (dht *IpfsDHT) IsBlacklisted(p peer.ID) bool {
+	dht.plk.Lock()
+	defer dht.plk.Unlock()
+
+	_, ok := dht.BlacklistPeers[p]
+	return ok
+}
+
+func (dht *IpfsDHT) BlacklistPeer(p peer.ID) {
+	dht.plk.Lock()
+	defer dht.plk.Unlock()
+
+	dht.BlacklistPeers[p] = struct{}{}
 }

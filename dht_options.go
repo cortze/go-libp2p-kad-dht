@@ -293,15 +293,6 @@ func RoutingTablePeerDiversityFilter(pg peerdiversity.PeerIPGroupFilter) Option 
 	}
 }
 
-// WithCustomMessageSender configures the pb.MessageSender of the IpfsDHT to use the
-// custom implementation of the pb.MessageSender
-func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSender) Option {
-	return func(c *dhtcfg.Config) error {
-		c.MessageSenderFunc = initFunc
-		return nil
-	}
-}
-
 // disableFixLowPeersRoutine disables the "fixLowPeers" routine in the DHT.
 // This is ONLY for tests.
 func disableFixLowPeersRoutine(t *testing.T) Option {
@@ -317,6 +308,26 @@ func disableFixLowPeersRoutine(t *testing.T) Option {
 func forceAddressUpdateProcessing(t *testing.T) Option {
 	return func(c *dhtcfg.Config) error {
 		c.TestAddressUpdateProcessing = true
+		return nil
+	}
+}
+
+// --- NEW FEATURE ---
+// WithCustomMessageSender configures the pb.MessageSender of the IpfsDHT to use the
+// custom implementation of the pb.MessageSender
+func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSender) Option {
+	return func(c *dhtcfg.Config) error {
+		c.MessageSenderFunc = initFunc
+		return nil
+	}
+}
+
+// --- NEW FEATURE ---
+// WithPeerBlacklist forces the DHT to avoid a certain set of peers.
+// This enables the possibility to remove hydras from participating in our DHT walk and Provide methods
+func WithPeerBlacklist(blacklist map[peer.ID]struct{}) Option {
+	return func(c *dhtcfg.Config) error {
+		c.BlacklistPeers = blacklist
 		return nil
 	}
 }

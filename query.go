@@ -97,6 +97,7 @@ func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, ho
 	for i, p := range lookupRes.peers {
 		if state := lookupRes.state[i]; state == qpeerset.PeerHeard || state == qpeerset.PeerWaiting {
 			queryPeers = append(queryPeers, p)
+
 		}
 	}
 
@@ -241,7 +242,7 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 	// extract the top K not unreachable peers
 	var peers []peer.ID
 	peerState := make(map[peer.ID]qpeerset.PeerState)
-	qp := q.queryPeers.GetClosestNInStates(q.dht.bucketSize, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
+	qp := q.queryPeers.GetClosestNInStates(q.dht.bucketSize, q.dht.BlacklistPeers, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
 	for _, p := range qp {
 		state := q.queryPeers.GetState(p)
 		peerState[p] = state
@@ -372,7 +373,8 @@ func (q *query) isReadyToTerminate(ctx context.Context, nPeersToQuery int) (bool
 
 	// The peers we query next should be ones that we have only Heard about.
 	var peersToQuery []peer.ID
-	peers := q.queryPeers.GetClosestInStates(qpeerset.PeerHeard)
+	blckls := make(map[peer.ID]struct{})
+	peers := q.queryPeers.GetClosestInStates(blckls, qpeerset.PeerHeard)
 	count := 0
 	for _, p := range peers {
 		peersToQuery = append(peersToQuery, p)
@@ -388,7 +390,8 @@ func (q *query) isReadyToTerminate(ctx context.Context, nPeersToQuery int) (bool
 // From the set of all nodes that are not unreachable,
 // if the closest beta nodes are all queried, the lookup can terminate.
 func (q *query) isLookupTermination() bool {
-	peers := q.queryPeers.GetClosestNInStates(q.dht.beta, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
+	blckls := make(map[peer.ID]struct{})
+	peers := q.queryPeers.GetClosestNInStates(q.dht.beta, blckls, qpeerset.PeerHeard, qpeerset.PeerWaiting, qpeerset.PeerQueried)
 	for _, p := range peers {
 		if q.queryPeers.GetState(p) != qpeerset.PeerQueried {
 			return false

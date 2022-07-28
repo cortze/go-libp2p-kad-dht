@@ -25,7 +25,10 @@ import (
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 )
 
-var dhtReadMessageTimeout = 10 * time.Second
+const (
+	dhtReadMessageTimeout = 10 * time.Second
+	HydraPeerError        = "messaging hydra node"
+)
 
 // ErrReadTimeout is an error that occurs when no message is read within the timeout period.
 var ErrReadTimeout = fmt.Errorf("timed out reading response")
@@ -146,6 +149,11 @@ func (m *messageSenderImpl) messageSenderForPeer(ctx context.Context, p peer.ID)
 	if err := ms.prepOrInvalidate(ctx); err != nil {
 		m.smlk.Lock()
 		defer m.smlk.Unlock()
+
+		// if error is hydraPeerError, return nil
+		if err.Error() == HydraPeerError {
+			return nil, err
+		}
 
 		if msCur, ok := m.strmap[p]; ok {
 			// Changed. Use the new one, old one is invalid and

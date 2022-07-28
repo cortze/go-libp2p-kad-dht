@@ -298,6 +298,7 @@ func (q *query) run() {
 
 	// return only once all outstanding queries have completed.
 	defer q.waitGroup.Wait()
+
 	for {
 		var cause peer.ID
 		select {
@@ -305,9 +306,7 @@ func (q *query) run() {
 			q.updateState(pathCtx, update)
 			cause = update.cause
 			// add all the heard peers into the tree
-			for _, p := range update.heard {
-				q.queryHops.addNewPeer(cause, p)
-			}
+			q.queryHops.addNewPeers(cause, update.heard)
 		case <-pathCtx.Done():
 			q.terminate(pathCtx, cancelPath, LookupCancelled)
 		}
@@ -549,9 +548,9 @@ func (dht *IpfsDHT) dialPeer(ctx context.Context, p peer.ID) error {
 			Extra: err.Error(),
 			ID:    p,
 		})
-
 		return err
 	}
+
 	logger.Debugf("connected. dial success.")
 	return nil
 }

@@ -384,9 +384,7 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	keyMH := key.Hash()
 	logger.Debugw("providing", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
 
-	// don't add ourselfs because we want to know if the PRs are retrievable while looking for a CID
-	// add self locally
-	// dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
+	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
 	if !brdcst {
 		return nil
 	}
@@ -470,12 +468,24 @@ func (dht *IpfsDHT) FindProviders(ctx context.Context, c cid.Cid) ([]peer.AddrIn
 	return providers, nil
 }
 
-// FindProvidersAsync is the same thing as FindProviders, but returns a channel.
-// Peers will be returned on the channel as soon as they are found, even before
-// the search query completes. If count is zero then the query will run until it
-// completes. Note: not reading from the returned channel may block the query
-// from progressing.
-func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count int) <-chan peer.AddrInfo {
+// --- CUSTOM MODIFICATION for the CID Hoarder ---
+
+// LookupForProviders searches for the providers of a PR only using the async DHT lookup
+func (dht *IpfsDHT) LookupForProviders(ctx context.Context, c cid.Cid) ([]peer.AddrInfo, error) {
+	if !dht.enableProviders {
+		return nil, routing.ErrNotSupported
+	} else if !c.Defined() {
+		return nil, fmt.Errorf("invalid cid: undefined")
+	}
+
+	var providers []peer.AddrInfo
+	for p := range dht.FindProvidersByLookupAsync(ctx, c, dht.bucketSize) {
+		providers = append(providers, p)
+	}
+	return providers, nil
+}
+
+func (dht *IpfsDHT) FindProvidersByLookupAsync(ctx context.Context, key cid.Cid, count int) <-chan peer.AddrInfo {
 	if !dht.enableProviders || !key.Defined() {
 		peerOut := make(chan peer.AddrInfo)
 		close(peerOut)
@@ -492,11 +502,11 @@ func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count i
 
 	var hops Hops
 	logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
-	go dht.findProvidersAsyncRoutine(ctx, keyMH, count, &hops, peerOut)
+	go dht.lookupForProvidersAsync(ctx, keyMH, count, &hops, peerOut)
 	return peerOut
 }
 
-func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, hops *Hops, peerOut chan peer.AddrInfo) {
+func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.Multihash, count int, hops *Hops, peerOut chan peer.AddrInfo) {
 	defer close(peerOut)
 
 	findAll := count == 0
@@ -612,6 +622,121 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		},
 		func() bool {
 			return !findAll && psSize() >= count
+		},
+	)
+
+	if err == nil && ctx.Err() == nil {
+		dht.refreshRTIfNoShortcut(kb.ConvertKey(string(key)), lookupRes)
+	}
+}
+
+// --- END OF - CUSTOM MODIFICATION for the CID Hoarder ---
+
+// FindProvidersAsync is the same thing as FindProviders, but returns a channel.
+// Peers will be returned on the channel as soon as they are found, even before
+// the search query completes. If count is zero then the query will run until it
+// completes. Note: not reading from the returned channel may block the query
+// from progressing.
+func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count int) <-chan peer.AddrInfo {
+	if !dht.enableProviders || !key.Defined() {
+		peerOut := make(chan peer.AddrInfo)
+		close(peerOut)
+		return peerOut
+	}
+
+	chSize := count
+	if count == 0 {
+		chSize = 1
+	}
+	peerOut := make(chan peer.AddrInfo, chSize)
+
+	keyMH := key.Hash()
+
+	var hops Hops
+	logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
+	go dht.findProvidersAsyncRoutine(ctx, keyMH, count, &hops, peerOut)
+	return peerOut
+}
+
+func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, hops *Hops, peerOut chan peer.AddrInfo) {
+	defer close(peerOut)
+
+	findAll := count == 0
+	var ps *peer.Set
+	if findAll {
+		ps = peer.NewSet()
+	} else {
+		ps = peer.NewLimitedSet(count)
+	}
+
+	provs, err := dht.providerStore.GetProviders(ctx, key)
+	if err != nil {
+		return
+	}
+	for _, p := range provs {
+		// NOTE: Assuming that this list of peers is unique
+		if ps.TryAdd(p.ID) {
+			select {
+			case peerOut <- p:
+			case <-ctx.Done():
+				return
+			}
+		}
+
+		// If we have enough peers locally, don't bother with remote RPC
+		// TODO: is this a DOS vector?
+		if !findAll && ps.Size() >= count {
+			return
+		}
+	}
+
+	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key), hops,
+		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
+			// For DHT query command
+			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+				Type: routing.SendingQuery,
+				ID:   p,
+			})
+
+			provs, closest, err := dht.protoMessenger.GetProviders(ctx, p, key)
+			if err != nil {
+				return nil, err
+			}
+
+			logger.Debugf("%d provider entries", len(provs))
+
+			// Add unique providers from request, up to 'count'
+			for _, prov := range provs {
+				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
+				logger.Debugf("got provider: %s", prov)
+				if ps.TryAdd(prov.ID) {
+					logger.Debugf("using provider: %s", prov)
+					select {
+					case peerOut <- *prov:
+					case <-ctx.Done():
+						logger.Debug("context timed out sending more providers")
+						return nil, ctx.Err()
+					}
+				}
+				if !findAll && ps.Size() >= count {
+					logger.Debugf("got enough providers (%d/%d)", ps.Size(), count)
+					return nil, nil
+				}
+			}
+
+			// Give closer peers back to the query to be queried
+			logger.Debugf("got closer peers: %d %s", len(closest), closest)
+
+			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+				Type:      routing.PeerResponse,
+				ID:        p,
+				Responses: closest,
+			})
+
+			return closest, nil
+		},
+		func() bool {
+			return !findAll && ps.Size() >= count
 		},
 	)
 

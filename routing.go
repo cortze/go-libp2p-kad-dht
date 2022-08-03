@@ -518,6 +518,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		defer psLock.Unlock()
 		return len(ps)
 	}
+<<<<<<< HEAD
 
 	provs, err := dht.providerStore.GetProviders(ctx, key)
 	if err != nil {
@@ -539,6 +540,30 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 			return
 		}
 	}
+=======
+	// -- Ignore the added PRs from previous Key Lookups --
+	// -- and purely rely on the DHT lookup for the closest peers --
+	// provs, err := dht.providerStore.GetProviders(ctx, key)
+	// if err != nil {
+	// 	return
+	// }
+	// for _, p := range provs {
+	// 	// NOTE: Assuming that this list of peers is unique
+	// 	if ps.TryAdd(p.ID) {
+	// 		select {
+	// 		case peerOut <- p:
+	// 		case <-ctx.Done():
+	// 			return
+	// 		}
+	// 	}
+
+	// 	// If we have enough peers locally, don't bother with remote RPC
+	// 	// TODO: is this a DOS vector?
+	// 	if !findAll && ps.Size() >= count {
+	// 		return
+	// 	}
+	// }
+>>>>>>> fix using cached PR from previous lookups
 
 	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key), hops,
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {

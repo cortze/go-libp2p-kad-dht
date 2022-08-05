@@ -709,15 +709,15 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 			for _, prov := range provs {
 				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
 				logger.Debugf("got provider: %s", prov)
-				if ps.TryAdd(prov.ID) {
-					logger.Debugf("using provider: %s", prov)
-					select {
-					case peerOut <- *prov:
-					case <-ctx.Done():
-						logger.Debug("context timed out sending more providers")
-						return nil, ctx.Err()
-					}
+
+				logger.Debugf("using provider: %s", prov)
+				select {
+				case peerOut <- *prov:
+				case <-ctx.Done():
+					logger.Debug("context timed out sending more providers")
+					return nil, ctx.Err()
 				}
+
 				if !findAll && ps.Size() >= count {
 					logger.Debugf("got enough providers (%d/%d)", ps.Size(), count)
 					return nil, nil

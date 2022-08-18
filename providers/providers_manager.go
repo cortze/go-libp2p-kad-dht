@@ -237,6 +237,7 @@ func (pm *ProviderManager) run(ctx context.Context, proc goprocess.Process) {
 
 // AddProvider adds a provider
 func (pm *ProviderManager) AddProvider(ctx context.Context, k []byte, provInfo peer.AddrInfo) error {
+
 	if provInfo.ID != pm.self { // don't add own addrs.
 		pm.pstore.AddAddrs(provInfo.ID, provInfo.Addrs, ProviderAddrTTL)
 	}

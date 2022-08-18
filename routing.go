@@ -479,7 +479,7 @@ func (dht *IpfsDHT) LookupForProviders(ctx context.Context, c cid.Cid) ([]peer.A
 	}
 
 	var providers []peer.AddrInfo
-	for p := range dht.FindProvidersByLookupAsync(ctx, c, dht.bucketSize) {
+	for p := range dht.FindProvidersByLookupAsync(ctx, c, dht.bucketSize) { // wait only for the first provider
 		providers = append(providers, p)
 	}
 	return providers, nil
@@ -575,26 +575,32 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 	// }
 >>>>>>> fix using cached PR from previous lookups
 
-	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key), hops,
+	_, _ = dht.runLookupWithFollowup(ctx, string(key), hops,
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
 				Type: routing.SendingQuery,
 				ID:   p,
 			})
-
 			provs, closest, err := dht.protoMessenger.GetProviders(ctx, p, key)
 			if err != nil {
 				return nil, err
+			}
+			if len(provs) > 0 {
+				fmt.Printf("peer %s had %d providers for %s ", p.String(), len(provs), key)
+				fmt.Println(provs[0].ID)
 			}
 
 			logger.Debugf("%d provider entries", len(provs))
 
 			// Add unique providers from request, up to 'count'
 			for _, prov := range provs {
-				dht.maybeAddAddrs(prov.ID, prov.Addrs, peerstore.TempAddrTTL)
 				logger.Debugf("got provider: %s", prov)
+<<<<<<< HEAD
 				if psTryAdd(prov.ID) {
+=======
+				if ps.TryAdd(prov.ID) {
+>>>>>>> add PeerSet back
 					logger.Debugf("using provider: %s", prov)
 					select {
 					case peerOut <- *prov:
@@ -603,8 +609,13 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 						return nil, ctx.Err()
 					}
 				}
+<<<<<<< HEAD
 				if !findAll && psSize() >= count {
 					logger.Debugf("got enough providers (%d/%d)", psSize(), count)
+=======
+				if !findAll && ps.Size() >= count {
+					logger.Debugf("got enough providers (%d/%d)", ps.Size(), count)
+>>>>>>> add PeerSet back
 					return nil, nil
 				}
 			}
@@ -624,10 +635,6 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 			return !findAll && psSize() >= count
 		},
 	)
-
-	if err == nil && ctx.Err() == nil {
-		dht.refreshRTIfNoShortcut(kb.ConvertKey(string(key)), lookupRes)
-	}
 }
 
 // --- END OF - CUSTOM MODIFICATION for the CID Hoarder ---

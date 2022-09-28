@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/decred/base58"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
@@ -528,29 +529,6 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 		defer psLock.Unlock()
 		return len(ps)
 	}
-<<<<<<< HEAD
-
-	provs, err := dht.providerStore.GetProviders(ctx, key)
-	if err != nil {
-		return
-	}
-	for _, p := range provs {
-		// NOTE: Assuming that this list of peers is unique
-		if psTryAdd(p.ID) {
-			select {
-			case peerOut <- p:
-			case <-ctx.Done():
-				return
-			}
-		}
-
-		// If we have enough peers locally, don't bother with remote RPC
-		// TODO: is this a DOS vector?
-		if !findAll && len(ps) >= count {
-			return
-		}
-	}
-=======
 	// -- Ignore the added PRs from previous Key Lookups --
 	// -- and purely rely on the DHT lookup for the closest peers --
 	// provs, err := dht.providerStore.GetProviders(ctx, key)
@@ -573,7 +551,6 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 	// 		return
 	// 	}
 	// }
->>>>>>> fix using cached PR from previous lookups
 
 	_, _ = dht.runLookupWithFollowup(ctx, string(key), hops,
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
@@ -587,8 +564,7 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 				return nil, err
 			}
 			if len(provs) > 0 {
-				fmt.Printf("peer %s had %d providers for %s ", p.String(), len(provs), key)
-				fmt.Println(provs[0].ID)
+				fmt.Println("peer", p.String(), "had", len(provs), "providers for ", base58.Encode(key), "|", time.Now(), "->", provs)
 			}
 
 			logger.Debugf("%d provider entries", len(provs))
@@ -596,11 +572,7 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 			// Add unique providers from request, up to 'count'
 			for _, prov := range provs {
 				logger.Debugf("got provider: %s", prov)
-<<<<<<< HEAD
 				if psTryAdd(prov.ID) {
-=======
-				if ps.TryAdd(prov.ID) {
->>>>>>> add PeerSet back
 					logger.Debugf("using provider: %s", prov)
 					select {
 					case peerOut <- *prov:
@@ -609,13 +581,8 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 						return nil, ctx.Err()
 					}
 				}
-<<<<<<< HEAD
 				if !findAll && psSize() >= count {
 					logger.Debugf("got enough providers (%d/%d)", psSize(), count)
-=======
-				if !findAll && ps.Size() >= count {
-					logger.Debugf("got enough providers (%d/%d)", ps.Size(), count)
->>>>>>> add PeerSet back
 					return nil, nil
 				}
 			}

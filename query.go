@@ -12,7 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/routing"
-	log "github.com/sirupsen/loggrus"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/google/uuid"
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"

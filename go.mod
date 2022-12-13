@@ -2,7 +2,10 @@ module github.com/libp2p/go-libp2p-kad-dht
 
 go 1.18
 
+replace github.com/libp2p/go-libp2p-kad-dht => ./
+
 require (
+	github.com/decred/base58 v1.0.4
 	github.com/gogo/protobuf v1.3.2
 	github.com/google/gopacket v1.1.19
 	github.com/google/uuid v1.3.0
@@ -16,6 +19,7 @@ require (
 	github.com/ipfs/go-log v1.0.5
 	github.com/jbenet/goprocess v0.1.4
 	github.com/libp2p/go-libp2p v0.22.0
+	github.com/libp2p/go-libp2p-core v0.3.0
 	github.com/libp2p/go-libp2p-kbucket v0.5.0
 	github.com/libp2p/go-libp2p-record v0.2.0
 	github.com/libp2p/go-libp2p-routing-helpers v0.4.0
@@ -28,6 +32,7 @@ require (
 	github.com/multiformats/go-multibase v0.1.1
 	github.com/multiformats/go-multihash v0.2.1
 	github.com/multiformats/go-multistream v0.3.3
+	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.8.0
 	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1
 	go.opencensus.io v0.23.0
@@ -39,12 +44,14 @@ require (
 require (
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/btcsuite/btcd v0.20.1-beta // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/cheekybits/genny v1.0.0 // indirect
 	github.com/containerd/cgroups v1.0.4 // indirect
 	github.com/coreos/go-systemd/v22 v22.3.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
+	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.1.0 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/elastic/gosigar v0.14.2 // indirect

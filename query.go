@@ -168,7 +168,7 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn
 		ctx:           ctx,
 		dht:           dht,
 		queryPeers:    qpeerset.NewQueryPeerset(target),
-		lookupMetrics: newLookupMetrics(),
+		lookupMetrics: NewLookupMetrics(),
 		seedPeers:     seedPeers,
 		peerTimes:     make(map[peer.ID]time.Duration),
 		terminated:    false,

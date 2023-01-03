@@ -16,7 +16,7 @@ type LookupMetrics struct {
 	closestPeers []peer.ID
 }
 
-func newLookupMetrics() *LookupMetrics {
+func NewLookupMetrics() *LookupMetrics {
 	log.Trace("new lookup metrics")
 	return &LookupMetrics{
 		startTime:    time.Now(),

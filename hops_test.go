@@ -65,7 +65,7 @@ func TestHop(t *testing.T) {
 	require.Equal(t, 0, shortestHop)
 }
 
-func TestHopsQuery(t *testing.T) {
+func TestLookupMetrics(t *testing.T) {
 
 	//  schema:
 	// peer 0 	-- peer 2	-- peer 6	-- peer 7
@@ -102,7 +102,7 @@ func TestHopsQuery(t *testing.T) {
 	}
 
 	// generate the parent queryHop
-	qHop := newQueryHops()
+	qHop := newLookupMetrics()
 
 	// ---- level 1 and 2 of the tree ----
 	// add peer 2 and 3 as child hops from 0

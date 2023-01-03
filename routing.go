@@ -66,13 +66,10 @@ func (dht *IpfsDHT) PutValue(ctx context.Context, key string, value []byte, opts
 		return err
 	}
 
-	var hops Hops
-	peers, err := dht.GetClosestPeers(ctx, key, &hops)
+	peers, _, err := dht.GetClosestPeers(ctx, key)
 	if err != nil {
 		return err
 	}
-
-	_ = hops
 
 	wg := sync.WaitGroup{}
 	for _, p := range peers {
@@ -378,16 +375,16 @@ func (dht *IpfsDHT) refreshRTIfNoShortcut(key kb.ID, lookupRes *lookupWithFollow
 // Provide makes this node announce that it can provide a value for the given key
 func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error {
 	if !dht.enableProviders {
-		return routing.ErrNotSupported
+		return nil, routing.ErrNotSupported
 	} else if !key.Defined() {
-		return fmt.Errorf("invalid cid: undefined")
+		return nil, fmt.Errorf("invalid cid: undefined")
 	}
 	keyMH := key.Hash()
 	logger.Debugw("providing", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
 
 	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
 	if !brdcst {
-		return nil
+		return nil, nil
 	}
 
 	closerCtx := ctx
@@ -397,7 +394,7 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 
 		if timeout < 0 {
 			// timed out
-			return context.DeadlineExceeded
+			return nil, context.DeadlineExceeded
 		} else if timeout < 10*time.Second {
 			// Reserve 10% for the final put.
 			deadline = deadline.Add(-timeout / 10)
@@ -412,14 +409,14 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	}
 
 	var exceededDeadline bool
-	var hops *Hops
+	// var lookupMetrics *LookupMetrics
 
-	// check if the context has a given value (pointer for the number of hops)
-	if v := ctx.Value(ContextKey("hops")); v != nil {
-		hops = v.(*Hops)
-	}
+	// // check if the context has a given value (pointer for the number of hops)
+	// if v := ctx.Value(ContextKey("lookupMetrics")); v != nil {
+	// 	lookupMetrics = v.(*LookupMetrics)
+	// }
 
-	peers, err := dht.GetClosestPeers(closerCtx, string(keyMH), hops)
+	peers, lookupMetrics, err := dht.GetClosestPeers(closerCtx, string(keyMH))
 
 	switch err {
 	case context.DeadlineExceeded:
@@ -427,12 +424,12 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 		// context is still fine, provide the value to the closest peers
 		// we managed to find, even if they're not the _actual_ closest peers.
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return nil, ctx.Err()
 		}
 		exceededDeadline = true
 	case nil:
 	default:
-		return err
+		return lookupMetrics, err
 	}
 
 	wg := sync.WaitGroup{}
@@ -449,9 +446,9 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	}
 	wg.Wait()
 	if exceededDeadline {
-		return context.DeadlineExceeded
+		return nil, context.DeadlineExceeded
 	}
-	return ctx.Err()
+	return nil, ctx.Err()
 }
 
 // FindProviders searches until the context expires.
@@ -501,13 +498,12 @@ func (dht *IpfsDHT) FindProvidersByLookupAsync(ctx context.Context, key cid.Cid,
 
 	keyMH := key.Hash()
 
-	var hops Hops
 	logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
-	go dht.lookupForProvidersAsync(ctx, keyMH, count, &hops, peerOut)
+	go dht.lookupForProvidersAsync(ctx, keyMH, count, peerOut)
 	return peerOut
 }
 
-func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.Multihash, count int, hops *Hops, peerOut chan peer.AddrInfo) {
+func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.Multihash, count int, peerOut chan peer.AddrInfo) {
 	defer close(peerOut)
 
 	findAll := count == 0
@@ -552,7 +548,7 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 	// 	}
 	// }
 
-	_, _ = dht.runLookupWithFollowup(ctx, string(key), hops,
+	_, _ = dht.runLookupWithFollowup(ctx, string(key),
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -626,13 +622,12 @@ func (dht *IpfsDHT) FindProvidersAsync(ctx context.Context, key cid.Cid, count i
 
 	keyMH := key.Hash()
 
-	var hops Hops
 	logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
-	go dht.findProvidersAsyncRoutine(ctx, keyMH, count, &hops, peerOut)
+	go dht.findProvidersAsyncRoutine(ctx, keyMH, count, peerOut)
 	return peerOut
 }
 
-func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, hops *Hops, peerOut chan peer.AddrInfo) {
+func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash.Multihash, count int, peerOut chan peer.AddrInfo) {
 	defer close(peerOut)
 
 	findAll := count == 0
@@ -676,7 +671,7 @@ func (dht *IpfsDHT) findProvidersAsyncRoutine(ctx context.Context, key multihash
 		}
 	}
 
-	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key), hops,
+	lookupRes, err := dht.runLookupWithFollowup(ctx, string(key),
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -744,8 +739,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 		return pi, nil
 	}
 
-	var hops Hops
-	lookupRes, err := dht.runLookupWithFollowup(ctx, string(id), &hops,
+	lookupRes, err := dht.runLookupWithFollowup(ctx, string(id),
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
 			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -753,7 +747,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 				ID:   p,
 			})
 
-			peers, err := dht.protoMessenger.GetClosestPeers(ctx, p, id)
+			peers, _, err := dht.protoMessenger.GetClosestPeers(ctx, p, id)
 			if err != nil {
 				logger.Debugf("error getting closer peers: %s", err)
 				return nil, err
@@ -772,8 +766,6 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 			return dht.host.Network().Connectedness(id) == network.Connected
 		},
 	)
-
-	_ = hops
 
 	if err != nil {
 		return peer.AddrInfo{}, err

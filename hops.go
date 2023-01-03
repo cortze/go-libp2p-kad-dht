@@ -2,34 +2,31 @@ package dht
 
 import (
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	log "github.com/sirupsen/logrus"
 )
 
-// TODO: -- simplyfy the tree by removing queryHops (the begining of the tree is always the key that we are seatching for)
-type Hops struct {
-	Total     int
-	ToClosest int
+type LookupMetrics struct {
+	m         sync.Mutex
+	startTime time.Time
+	tree      map[peer.ID]*hop
+	ogPeers   map[peer.ID]*hop
 }
 
-type queryHops struct {
-	m       sync.Mutex
-	tree    map[peer.ID]*hop
-	ogPeers map[peer.ID]*hop
-}
-
-func newQueryHops() *queryHops {
-	log.Trace("New query hops")
-	return &queryHops{
-		tree:    make(map[peer.ID]*hop),
-		ogPeers: make(map[peer.ID]*hop),
+func newLookupMetrics() *LookupMetrics {
+	log.Trace("new lookup metrics")
+	return &LookupMetrics{
+		startTime: time.Now(),
+		tree:      make(map[peer.ID]*hop),
+		ogPeers:   make(map[peer.ID]*hop),
 	}
 }
 
-func (qh *queryHops) addNewPeers(causePeer peer.ID, p []peer.ID) {
-	qh.m.Lock()
-	defer qh.m.Unlock()
+func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
+	l.m.Lock()
+	defer l.m.Unlock()
 
 	log.WithFields(log.Fields{
 		"cause": causePeer.String(),
@@ -37,15 +34,15 @@ func (qh *queryHops) addNewPeers(causePeer peer.ID, p []peer.ID) {
 	}).Trace("Adding new peers")
 
 	// get parent hop
-	parentHop, ok := qh.searchOgPeer(causePeer)
+	parentHop, ok := l.searchOgPeer(causePeer)
 	if !ok {
-		// if casue peer not in the tree, create new entrance an level 0
+		// if cause peer not in the tree, create new entrance an level 0
 		parentHop = newHop(causePeer)
 		parentHop.original = true
 
 		// add the parent hop to the level 0 tree
-		qh.tree[causePeer] = parentHop
-		qh.ogPeers[causePeer] = parentHop
+		l.tree[causePeer] = parentHop
+		l.ogPeers[causePeer] = parentHop
 	}
 
 	// iter throught the new peers to add to the tree
@@ -58,7 +55,7 @@ func (qh *queryHops) addNewPeers(causePeer peer.ID, p []peer.ID) {
 
 		// check whether there is already an original peer with the same ID in the tree
 		var h *hop
-		_, ok = qh.searchOgPeer(pi)
+		_, ok = l.searchOgPeer(pi)
 
 		// to avoid having an endless loop over links between hops, create non-original childs to fill the tree
 		if ok {
@@ -69,7 +66,7 @@ func (qh *queryHops) addNewPeers(causePeer peer.ID, p []peer.ID) {
 			// if the there isn't a peer with the same PeerId, we create an original one
 			h = newHop(pi)
 			h.original = true
-			qh.ogPeers[pi] = h
+			l.ogPeers[pi] = h
 
 		}
 		// link always the child hop to the parent hop
@@ -77,10 +74,14 @@ func (qh *queryHops) addNewPeers(causePeer peer.ID, p []peer.ID) {
 	}
 }
 
+func (l *LookupMetrics) GetHopsForPeerSet(peerSet []peer.ID) int {
+	return l.getHopsForPeerSet(peerSet)
+}
+
 // means go through the tree len(peerSet) times to get the total of hops to discover the peers
-func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
-	qh.m.Lock()
-	defer qh.m.Unlock()
+func (l *LookupMetrics) getHopsForPeerSet(peerSet []peer.ID) int {
+	l.m.Lock()
+	defer l.m.Unlock()
 
 	// although the hop gives you the minum distance to the peer,
 	// whe want the biggest one of those shortest distances
@@ -89,7 +90,7 @@ func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
 	// iter through the peer set to see the sortest depth at when we found it
 	for _, p := range peerSet {
 		var shortestHop int
-		for _, hop := range qh.tree {
+		for _, hop := range l.tree {
 			// if the target peer is already in the initial hop list, keep searching for the rest of peers (shortest distance)
 			if p == hop.causePeer {
 				continue
@@ -121,15 +122,19 @@ func (qh *queryHops) getHopsForPeerSet(peerSet []peer.ID) int {
 
 }
 
-func (qh *queryHops) getHops() int {
-	qh.m.Lock()
-	defer qh.m.Unlock()
+func (l *LookupMetrics) GetHops() int {
+	return l.getHops()
+}
+
+func (l *LookupMetrics) getHops() int {
+	l.m.Lock()
+	defer l.m.Unlock()
 
 	//peerCache := make(map[peer.ID]bool)
 	var maxHops int
 
 	// go through the entire tree checking which is the largest branch
-	for _, v := range qh.tree {
+	for _, v := range l.tree {
 		//	peerCache[v.causePeer] = true            // add to the cache the seed peers
 		auxHops := v.getNumberOfHops() // no previous hops since we are at parent
 		if auxHops > maxHops {
@@ -139,39 +144,24 @@ func (qh *queryHops) getHops() int {
 	return maxHops // the first hop is always our self-host peer id, so don't count it
 }
 
-func (qh *queryHops) searchOgPeer(peerID peer.ID) (*hop, bool) {
+func (l *LookupMetrics) searchOgPeer(peerID peer.ID) (*hop, bool) {
 	log.WithFields(log.Fields{
 		"peer": peerID.String(),
 	}).Trace("searching peer")
 
 	// iter through the ogPeers tree (optimized version)
-	h, ok := qh.ogPeers[peerID]
+	h, ok := l.ogPeers[peerID]
 	return h, ok
-
-	// --- Depecated: was adding to much overhead when adding pers ---
-	//
-	// // iter through the number of initial hops
-	// for p, h := range qh.tree {
-	// 	if p == peerID && h.original {
-	// 		return h, true
-	// 	}
-	// 	auxH, ok := h.searchPeer(peerID)
-	// 	if ok {
-	// 		if !auxH.original {
-	// 			log.Panic("pointer to non-original hop has been received at QueryHops")
-	// 		}
-	// 		return auxH, true
-	// 	}
-	// }
-	// // if previosu search didn't succeed, return failure searching
-	// return nil, false
 }
 
 type hop struct {
-	m         sync.Mutex
-	causePeer peer.ID
-	original  bool // identify if this peer is a original of existing one (came later in the lookup)
-	hops      map[peer.ID]*hop
+	m sync.Mutex
+
+	firstReportTime time.Time `json:"first-report-time"` // Time when the peer was first reported or tracked in the tree
+
+	causePeer peer.ID          `json:"cause-peer"` // peer that we contacted in the specific hop
+	original  bool             `json:"original"`   // identify if this peer is a original of existing one (came later in the lookup)
+	hops      map[peer.ID]*hop `json:"hops"`       // subsecuent hops from this same one
 }
 
 func newHop(causePeer peer.ID) *hop {
@@ -180,9 +170,10 @@ func newHop(causePeer peer.ID) *hop {
 	}).Trace("new hop")
 
 	return &hop{
-		causePeer: causePeer,
-		original:  false,
-		hops:      make(map[peer.ID]*hop),
+		firstReportTime: time.Now(),
+		causePeer:       causePeer,
+		original:        false,
+		hops:            make(map[peer.ID]*hop),
 	}
 }
 
@@ -191,7 +182,7 @@ func (h *hop) len() int {
 }
 
 // --- Depecated: was adding to much overhead when adding pers ---
-// moved to a OgPeers cache in queryHops
+// moved to a OgPeers cache in LookupMetrics
 func (h *hop) searchPeer(peerID peer.ID) (*hop, bool) {
 	h.m.Lock()
 	defer h.m.Unlock()

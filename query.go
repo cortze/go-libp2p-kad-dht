@@ -47,7 +47,7 @@ type query struct {
 	// queryPeers is the set of peers known by this query and their respective states.
 	queryPeers *qpeerset.QueryPeerset
 
-	queryHops *queryHops
+	lookupMetrics *LookupMetrics
 
 	// terminated is set when the first worker thread encounters the termination condition.
 	// Its role is to make sure that once termination is determined, it is sticky.
@@ -67,12 +67,11 @@ type lookupWithFollowupResult struct {
 	peers []peer.ID            // the top K not unreachable peers at the end of the query
 	state []qpeerset.PeerState // the peer states at the end of the query
 
-	// keep track of the totalHops performed to find the closest peers
-	hops *Hops
-
 	// indicates that neither the lookup nor the followup has been prematurely terminated by an external condition such
 	// as context cancellation or the stop function being called.
 	completed bool
+
+	lookupMetrics *LookupMetrics
 }
 
 // runLookupWithFollowup executes the lookup on the target using the given query function and stopping when either the
@@ -82,9 +81,9 @@ type lookupWithFollowupResult struct {
 //
 // After the lookup is complete the query function is run (unless stopped) against all of the top K peers from the
 // lookup that have not already been successfully queried.
-func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, hops *Hops, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runLookupWithFollowup(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	// run the query
-	lookupRes, err := dht.runQuery(ctx, target, hops, queryFn, stopFn)
+	lookupRes, err := dht.runQuery(ctx, target, queryFn, stopFn)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +158,7 @@ processFollowUp:
 	return lookupRes, nil
 }
 
-func (dht *IpfsDHT) runQuery(ctx context.Context, target string, hops *Hops, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
+func (dht *IpfsDHT) runQuery(ctx context.Context, target string, queryFn queryFn, stopFn stopFn) (*lookupWithFollowupResult, error) {
 	// pick the K closest peers to the key in our Routing table.
 	targetKadID := kb.ConvertKey(target)
 	seedPeers := dht.routingTable.NearestPeers(targetKadID, dht.bucketSize)
@@ -172,17 +171,17 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, hops *Hops, que
 	}
 
 	q := &query{
-		id:         uuid.New(),
-		key:        target,
-		ctx:        ctx,
-		dht:        dht,
-		queryPeers: qpeerset.NewQueryPeerset(target),
-		queryHops:  newQueryHops(),
-		seedPeers:  seedPeers,
-		peerTimes:  make(map[peer.ID]time.Duration),
-		terminated: false,
-		queryFn:    queryFn,
-		stopFn:     stopFn,
+		id:            uuid.New(),
+		key:           target,
+		ctx:           ctx,
+		dht:           dht,
+		queryPeers:    qpeerset.NewQueryPeerset(target),
+		lookupMetrics: newLookupMetrics(),
+		seedPeers:     seedPeers,
+		peerTimes:     make(map[peer.ID]time.Duration),
+		terminated:    false,
+		queryFn:       queryFn,
+		stopFn:        stopFn,
 	}
 
 	// run the query
@@ -193,10 +192,6 @@ func (dht *IpfsDHT) runQuery(ctx context.Context, target string, hops *Hops, que
 	}
 
 	res := q.constructLookupResult(targetKadID)
-
-	// copy data from res to org hops counter
-	hops.Total = res.hops.Total
-	hops.ToClosest = res.hops.ToClosest
 
 	return res, nil
 }
@@ -255,18 +250,12 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 		sortedPeers = sortedPeers[:q.dht.bucketSize]
 	}
 
-	// get the number of hops from the lookup
-	hops := &Hops{
-		Total:     q.queryHops.getHops(),
-		ToClosest: q.queryHops.getHopsForPeerSet(sortedPeers),
-	}
-
 	// return the top K not unreachable peers as well as their states at the end of the query
 	res := &lookupWithFollowupResult{
-		peers:     sortedPeers,
-		state:     make([]qpeerset.PeerState, len(sortedPeers)),
-		hops:      hops,
-		completed: completed,
+		peers:         sortedPeers,
+		state:         make([]qpeerset.PeerState, len(sortedPeers)),
+		lookupMetrics: q.lookupMetrics,
+		completed:     completed,
 	}
 
 	for i, p := range sortedPeers {
@@ -307,7 +296,7 @@ func (q *query) run() {
 			q.updateState(pathCtx, update)
 			cause = update.cause
 			// add all the heard peers into the tree
-			q.queryHops.addNewPeers(cause, update.heard)
+			q.lookupMetrics.addNewPeers(cause, update.heard)
 		case <-pathCtx.Done():
 			q.terminate(pathCtx, cancelPath, LookupCancelled)
 		}

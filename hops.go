@@ -9,18 +9,20 @@ import (
 )
 
 type LookupMetrics struct {
-	m         sync.Mutex
-	startTime time.Time
-	tree      map[peer.ID]*hop
-	ogPeers   map[peer.ID]*hop
+	m            sync.Mutex
+	startTime    time.Time
+	tree         map[peer.ID]*hop
+	ogPeers      map[peer.ID]*hop
+	closestPeers []peer.ID
 }
 
 func newLookupMetrics() *LookupMetrics {
 	log.Trace("new lookup metrics")
 	return &LookupMetrics{
-		startTime: time.Now(),
-		tree:      make(map[peer.ID]*hop),
-		ogPeers:   make(map[peer.ID]*hop),
+		startTime:    time.Now(),
+		tree:         make(map[peer.ID]*hop),
+		ogPeers:      make(map[peer.ID]*hop),
+		closestPeers: make([]peer.ID, 0),
 	}
 }
 
@@ -74,12 +76,14 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 	}
 }
 
-func (l *LookupMetrics) GetClosestPeers() []peer.ID {
-	closestPeers := make([]peer.ID, 0, len(l.ogPeers))
-	for key, _ := range l.ogPeers {
-		closestPeers = append(closestPeers, key)
+func (l *LookupMetrics) setClosestPeers(cPeers []peer.ID) {
+	for _, p := range cPeers {
+		l.closestPeers = append(l.closestPeers, p)
 	}
-	return closestPeers
+}
+
+func (l *LookupMetrics) GetClosestPeers() []peer.ID {
+	return l.closestPeers
 }
 
 func (l *LookupMetrics) GetHopsForPeerSet(peerSet []peer.ID) int {

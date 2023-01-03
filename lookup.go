@@ -57,5 +57,8 @@ func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID,
 		dht.routingTable.ResetCplRefreshedAtForID(kb.ConvertKey(key), time.Now())
 	}
 
+	// add the set of closest peers to the lookupMetrics
+	lookupRes.lookupMetrics.setClosestPeers(lookupRes.peers)
+
 	return lookupRes.peers, lookupRes.lookupMetrics, ctx.Err()
 }

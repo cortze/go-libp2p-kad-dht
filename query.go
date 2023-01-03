@@ -12,7 +12,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	pstore "github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/libp2p/go-libp2p/core/routing"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/google/uuid"
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"
@@ -146,13 +145,6 @@ processFollowUp:
 		for i := followupsCompleted; i < len(queryPeers); i++ {
 			<-doneCh
 		}
-	}
-
-	// add the number of totalHops to the pointer given by the caller
-	*hops = *lookupRes.hops
-
-	if hops.Total == 0 && hops.ToClosest == 0 {
-		log.Error("no lookup?")
 	}
 
 	return lookupRes, nil

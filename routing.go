@@ -151,9 +151,8 @@ func (dht *IpfsDHT) SearchValue(ctx context.Context, key string, opts ...routing
 	}
 
 	stopCh := make(chan struct{})
-	var hops Hops
 
-	valCh, lookupRes := dht.getValues(ctx, key, &hops, stopCh)
+	valCh, lookupRes := dht.getValues(ctx, key, stopCh)
 
 	out := make(chan []byte)
 	go func() {
@@ -272,7 +271,7 @@ func (dht *IpfsDHT) updatePeerValues(ctx context.Context, key string, val []byte
 	}
 }
 
-func (dht *IpfsDHT) getValues(ctx context.Context, key string, hops *Hops, stopQuery chan struct{}) (<-chan recvdVal, <-chan *lookupWithFollowupResult) {
+func (dht *IpfsDHT) getValues(ctx context.Context, key string, stopQuery chan struct{}) (<-chan recvdVal, <-chan *lookupWithFollowupResult) {
 	valCh := make(chan recvdVal, 1)
 	lookupResCh := make(chan *lookupWithFollowupResult, 1)
 
@@ -291,7 +290,7 @@ func (dht *IpfsDHT) getValues(ctx context.Context, key string, hops *Hops, stopQ
 	go func() {
 		defer close(valCh)
 		defer close(lookupResCh)
-		lookupRes, err := dht.runLookupWithFollowup(ctx, key, hops,
+		lookupRes, err := dht.runLookupWithFollowup(ctx, key,
 			func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 				// For DHT query command
 				routing.PublishQueryEvent(ctx, &routing.QueryEvent{
@@ -375,16 +374,16 @@ func (dht *IpfsDHT) refreshRTIfNoShortcut(key kb.ID, lookupRes *lookupWithFollow
 // Provide makes this node announce that it can provide a value for the given key
 func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error {
 	if !dht.enableProviders {
-		return nil, routing.ErrNotSupported
+		return routing.ErrNotSupported
 	} else if !key.Defined() {
-		return nil, fmt.Errorf("invalid cid: undefined")
+		return fmt.Errorf("invalid cid: undefined")
 	}
 	keyMH := key.Hash()
 	logger.Debugw("providing", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
 
 	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
 	if !brdcst {
-		return nil, nil
+		return nil
 	}
 
 	closerCtx := ctx
@@ -394,7 +393,7 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 
 		if timeout < 0 {
 			// timed out
-			return nil, context.DeadlineExceeded
+			return context.DeadlineExceeded
 		} else if timeout < 10*time.Second {
 			// Reserve 10% for the final put.
 			deadline = deadline.Add(-timeout / 10)
@@ -409,14 +408,16 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	}
 
 	var exceededDeadline bool
-	// var lookupMetrics *LookupMetrics
 
-	// // check if the context has a given value (pointer for the number of hops)
-	// if v := ctx.Value(ContextKey("lookupMetrics")); v != nil {
-	// 	lookupMetrics = v.(*LookupMetrics)
-	// }
+	peers, lMetrics, err := dht.GetClosestPeers(closerCtx, string(keyMH))
 
-	peers, lookupMetrics, err := dht.GetClosestPeers(closerCtx, string(keyMH))
+	// check if the context has a given value (pointer for the number of hops)
+	if v := ctx.Value(ContextKey("lookupMetrics")); v != nil {
+		var lookupMetrics *LookupMetrics
+		lookupMetrics = v.(*LookupMetrics)
+		// add to the received pointer the content of the lookup metrics
+		*lookupMetrics = *lMetrics
+	}
 
 	switch err {
 	case context.DeadlineExceeded:
@@ -424,12 +425,12 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 		// context is still fine, provide the value to the closest peers
 		// we managed to find, even if they're not the _actual_ closest peers.
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return ctx.Err()
 		}
 		exceededDeadline = true
 	case nil:
 	default:
-		return lookupMetrics, err
+		return err
 	}
 
 	wg := sync.WaitGroup{}
@@ -446,9 +447,9 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) error
 	}
 	wg.Wait()
 	if exceededDeadline {
-		return nil, context.DeadlineExceeded
+		return context.DeadlineExceeded
 	}
-	return nil, ctx.Err()
+	return ctx.Err()
 }
 
 // FindProviders searches until the context expires.
@@ -747,7 +748,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 				ID:   p,
 			})
 
-			peers, _, err := dht.protoMessenger.GetClosestPeers(ctx, p, id)
+			peers, err := dht.protoMessenger.GetClosestPeers(ctx, p, id)
 			if err != nil {
 				logger.Debugf("error getting closer peers: %s", err)
 				return nil, err

@@ -74,6 +74,14 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 	}
 }
 
+func (l *LookupMetrics) GetClosestPeers() []peer.ID {
+	closestPeers := make([]peer.ID, 0, len(l.ogPeers))
+	for key, _ := range l.ogPeers {
+		closestPeers = append(closestPeers, key)
+	}
+	return closestPeers
+}
+
 func (l *LookupMetrics) GetHopsForPeerSet(peerSet []peer.ID) int {
 	return l.getHopsForPeerSet(peerSet)
 }

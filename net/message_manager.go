@@ -14,7 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	logging "github.com/ipfs/go-log"
+	logging "github.com/ipfs/go-log/v2"
 	"github.com/libp2p/go-msgio"
 
 	//lint:ignore SA1019 TODO migrate away from gogo pb
@@ -49,7 +49,11 @@ type messageSenderImpl struct {
 	blacklistUA string // piece of user-agent that is desired to be blacklistable (no-blacklist if empty)
 }
 
+<<<<<<< HEAD:net/message_manager.go
 func NewMessageSenderImpl(h host.Host, protos []protocol.ID, blacklistUA string) pb.MessageSender {
+=======
+func NewMessageSenderImpl(h host.Host, protos []protocol.ID) pb.MessageSenderWithDisconnect {
+>>>>>>> cbe39cd (refactor: remove goprocess):internal/net/message_manager.go
 	return &messageSenderImpl{
 		host:        h,
 		strmap:      make(map[peer.ID]*peerMessageSender),
@@ -325,7 +329,10 @@ func (ms *peerMessageSender) SendRequest(ctx context.Context, pmes *pb.Message) 
 		if err := ms.ctxReadMsg(ctx, mes); err != nil {
 			_ = ms.s.Reset()
 			ms.s = nil
-
+			if err == context.Canceled {
+				// retry would be same error
+				return nil, err
+			}
 			if retry {
 				logger.Debugw("error reading message", "error", err)
 				return nil, err

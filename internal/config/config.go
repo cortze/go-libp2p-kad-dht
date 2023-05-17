@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // DefaultPrefix is the application specific prefix attached to all DHT protocols by default.
@@ -33,22 +34,23 @@ type RouteTableFilterFunc func(dht interface{}, p peer.ID) bool
 
 // Config is a structure containing all the options that can be used when constructing a DHT.
 type Config struct {
-	Datastore          ds.Batching
-	Validator          record.Validator
-	ValidatorChanged   bool // if true implies that the validator has been changed and that Defaults should not be used
-	Mode               ModeOpt
-	ProtocolPrefix     protocol.ID
-	V1ProtocolOverride protocol.ID
-	BucketSize         int
-	Concurrency        int
-	Resiliency         int
-	MaxRecordAge       time.Duration
-	EnableProviders    bool
-	EnableValues       bool
-	ProviderStore      providers.ProviderStore
-	QueryPeerFilter    QueryFilterFunc
-	BlacklistPeers     map[peer.ID]struct{}
-	MessageSenderFunc  func(h host.Host, protos []protocol.ID) pb.MessageSender
+	Datastore              ds.Batching
+	Validator              record.Validator
+	ValidatorChanged       bool // if true implies that the validator has been changed and that Defaults should not be used
+	Mode                   ModeOpt
+	ProtocolPrefix         protocol.ID
+	V1ProtocolOverride     protocol.ID
+	BucketSize             int
+	Concurrency            int
+	Resiliency             int
+	MaxRecordAge           time.Duration
+	EnableProviders        bool
+	EnableValues           bool
+	ProviderStore          providers.ProviderStore
+	QueryPeerFilter        QueryFilterFunc
+	LookupCheckConcurrency int
+	BlacklistPeers         map[peer.ID]struct{}
+	MessageSenderFunc      func(h host.Host, protos []protocol.ID) pb.MessageSender
 
 	RoutingTable struct {
 		RefreshQueryTimeout time.Duration
@@ -61,6 +63,7 @@ type Config struct {
 	}
 
 	BootstrapPeers func() []peer.AddrInfo
+	AddressFilter  func([]ma.Multiaddr) []ma.Multiaddr
 
 	// test specific Config options
 	DisableFixLowPeers          bool
@@ -115,16 +118,18 @@ var Defaults = func(o *Config) error {
 	o.EnableValues = true
 	o.QueryPeerFilter = EmptyQueryFilter
 
-	o.RoutingTable.LatencyTolerance = time.Minute
-	o.RoutingTable.RefreshQueryTimeout = 1 * time.Minute
+	o.RoutingTable.LatencyTolerance = 10 * time.Second
+	o.RoutingTable.RefreshQueryTimeout = 10 * time.Second
 	o.RoutingTable.RefreshInterval = 10 * time.Minute
 	o.RoutingTable.AutoRefresh = true
 	o.RoutingTable.PeerFilter = EmptyRTFilter
+
 	o.MaxRecordAge = providers.ProvideValidity
 
 	o.BucketSize = defaultBucketSize
 	o.Concurrency = 10
 	o.Resiliency = 3
+	o.LookupCheckConcurrency = 256
 
 	// MAGIC: It makes sense to set it to a multiple of OptProvReturnRatio * BucketSize. We chose a multiple of 4.
 	o.OptimisticProvideJobsPoolSize = 60

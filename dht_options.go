@@ -8,14 +8,14 @@ import (
 	dhtcfg "github.com/libp2p/go-libp2p-kad-dht/internal/config"
 	pb "github.com/libp2p/go-libp2p-kad-dht/pb"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
+	"github.com/libp2p/go-libp2p-kbucket/peerdiversity"
+	record "github.com/libp2p/go-libp2p-record"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 
-	"github.com/libp2p/go-libp2p-kbucket/peerdiversity"
-	record "github.com/libp2p/go-libp2p-record"
-
 	ds "github.com/ipfs/go-datastore"
+	ma "github.com/multiformats/go-multiaddr"
 )
 
 // ModeOpt describes what mode the dht should operate in
@@ -196,6 +196,15 @@ func Resiliency(beta int) Option {
 	}
 }
 
+// LookupInterval configures maximal number of go routines that can be used to
+// perform a lookup check operation, before adding a new node to the routing table.
+func LookupCheckConcurrency(n int) Option {
+	return func(c *dhtcfg.Config) error {
+		c.LookupCheckConcurrency = n
+		return nil
+	}
+}
+
 // MaxRecordAge specifies the maximum time that any node will hold onto a record ("PutValue record")
 // from the time its received. This does not apply to any other forms of validity that
 // the record may contain.
@@ -356,6 +365,16 @@ func WithPeerBlacklist(blacklist map[peer.ID]struct{}) Option {
 func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSender) Option {
 	return func(c *dhtcfg.Config) error {
 		c.MessageSenderFunc = initFunc
+		return nil
+	}
+}
+
+// AddressFilter allows to configure the address filtering function.
+// This function is run before addresses are added to the peerstore.
+// It is most useful to avoid adding localhost / local addresses.
+func AddressFilter(f func([]ma.Multiaddr) []ma.Multiaddr) Option {
+	return func(c *dhtcfg.Config) error {
+		c.AddressFilter = f
 		return nil
 	}
 }

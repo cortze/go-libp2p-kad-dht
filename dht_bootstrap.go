@@ -40,8 +40,8 @@ func init() {
 // GetDefaultBootstrapPeerAddrInfos returns the peer.AddrInfos for the default
 // bootstrap peers so we can use these for initializing the DHT by passing these to the
 // BootstrapPeers(...) option.
-func GetDefaultBootstrapPeerAddrInfos() []peer.AddrInfo {
-	ds := make([]peer.AddrInfo, 0, len(DefaultBootstrapPeers))
+func GetDefaultBootstrapPeerAddrInfos() []*peer.AddrInfo {
+	ds := make([]*peer.AddrInfo, 0, len(DefaultBootstrapPeers))
 
 	for i := range DefaultBootstrapPeers {
 		info, err := peer.AddrInfoFromP2pAddr(DefaultBootstrapPeers[i])
@@ -50,7 +50,7 @@ func GetDefaultBootstrapPeerAddrInfos() []peer.AddrInfo {
 				DefaultBootstrapPeers[i].String(), err, "err")
 			continue
 		}
-		ds = append(ds, *info)
+		ds = append(ds, info)
 	}
 	return ds
 }

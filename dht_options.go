@@ -340,7 +340,6 @@ func OptimisticProvideJobsPoolSize(size int) Option {
 	}
 }
 
-
 // --- NEW FEATURE ---
 // WithPeerBlacklist forces the DHT to avoid a certain set of peers.
 // This enables the possibility to remove hydras from participating in our DHT walk and Provide methods

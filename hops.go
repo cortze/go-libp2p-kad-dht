@@ -9,8 +9,9 @@ import (
 )
 
 type LookupMetrics struct {
-	m            sync.Mutex
+	m            *sync.Mutex
 	startTime    time.Time
+	hops         int
 	tree         map[peer.ID]*hop
 	ogPeers      map[peer.ID]*hop
 	closestPeers []peer.ID
@@ -19,7 +20,9 @@ type LookupMetrics struct {
 func NewLookupMetrics() *LookupMetrics {
 	log.Trace("new lookup metrics")
 	return &LookupMetrics{
+		m:            new(sync.Mutex),
 		startTime:    time.Now(),
+		hops:         0,
 		tree:         make(map[peer.ID]*hop),
 		ogPeers:      make(map[peer.ID]*hop),
 		closestPeers: make([]peer.ID, 0),
@@ -45,16 +48,11 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 		// add the parent hop to the level 0 tree
 		l.tree[causePeer] = parentHop
 		l.ogPeers[causePeer] = parentHop
+		l.hops++
 	}
 
 	// iter throught the new peers to add to the tree
 	for _, pi := range p {
-
-		log.WithFields(log.Fields{
-			"cause": causePeer.String(),
-			"peer":  pi.String(),
-		}).Trace("Adding new peer")
-
 		// check whether there is already an original peer with the same ID in the tree
 		var h *hop
 		_, ok = l.searchOgPeer(pi)
@@ -69,7 +67,6 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 			h = newHop(pi)
 			h.original = true
 			l.ogPeers[pi] = h
-
 		}
 		// link always the child hop to the parent hop
 		parentHop.addSubHop(h)
@@ -80,6 +77,16 @@ func (l *LookupMetrics) setClosestPeers(cPeers []peer.ID) {
 	for _, p := range cPeers {
 		l.closestPeers = append(l.closestPeers, p)
 	}
+}
+
+// GetOgPeers is a non-thread safe operation, please use only for retrieving results
+func (l *LookupMetrics) GetOgPeers() map[peer.ID]*hop {
+	return l.ogPeers
+}
+
+// GetPeerTree is a non-thread safe operation, please use only for retrieving results
+func (l *LookupMetrics) GetPeerTree() map[peer.ID]*hop {
+	return l.tree
 }
 
 func (l *LookupMetrics) GetClosestPeers() []peer.ID {
@@ -122,7 +129,6 @@ func (l *LookupMetrics) getHopsForPeerSet(peerSet []peer.ID) int {
 		if shortestHop > biggestSetHop {
 			biggestSetHop = shortestHop // TODO: we still have to figure it out whether we want to add the seed peers as hops
 		}
-
 	}
 
 	log.WithFields(log.Fields{
@@ -131,11 +137,18 @@ func (l *LookupMetrics) getHopsForPeerSet(peerSet []peer.ID) int {
 	}).Trace("Adding new peer")
 
 	return biggestSetHop
+}
 
+func (l *LookupMetrics) GetStartTime() time.Time {
+	return l.startTime
 }
 
 func (l *LookupMetrics) GetHops() int {
 	return l.getHops()
+}
+
+func (l *LookupMetrics) GetContectedPeers() int {
+	return l.hops
 }
 
 func (l *LookupMetrics) getHops() int {
@@ -157,23 +170,17 @@ func (l *LookupMetrics) getHops() int {
 }
 
 func (l *LookupMetrics) searchOgPeer(peerID peer.ID) (*hop, bool) {
-	log.WithFields(log.Fields{
-		"peer": peerID.String(),
-	}).Trace("searching peer")
-
 	// iter through the ogPeers tree (optimized version)
 	h, ok := l.ogPeers[peerID]
 	return h, ok
 }
 
 type hop struct {
-	m sync.Mutex
-
-	firstReportTime time.Time `json:"first-report-time"` // Time when the peer was first reported or tracked in the tree
-
-	causePeer peer.ID          `json:"cause-peer"` // peer that we contacted in the specific hop
-	original  bool             `json:"original"`   // identify if this peer is a original of existing one (came later in the lookup)
-	hops      map[peer.ID]*hop `json:"hops"`       // subsecuent hops from this same one
+	m               sync.Mutex
+	firstReportTime time.Time        `json:"first-report-time"` // Time when the peer was first reported or tracked in the tree
+	causePeer       peer.ID          `json:"cause-peer"`        // peer that we contacted in the specific hop
+	original        bool             `json:"original"`          // identify if this peer is a original of existing one (came later in the lookup)
+	hops            map[peer.ID]*hop `json:"hops"`              // subsecuent hops from this same one
 }
 
 func newHop(causePeer peer.ID) *hop {
@@ -283,5 +290,4 @@ func (h *hop) getShortestDistToPeer(target peer.ID) int {
 	}
 	// return the shortest distance
 	return shortestDist
-
 }

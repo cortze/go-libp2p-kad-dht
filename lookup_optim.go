@@ -191,8 +191,8 @@ func (os *optimisticState) stopFn(qps *qpeerset.QueryPeerset) bool {
 	closest := qps.GetClosestNInStates(
 		os.dht.bucketSize,
 		os.dht.BlacklistPeers,
-		qpeerset.PeerHeard, 
-		qpeerset.PeerWaiting, 
+		qpeerset.PeerHeard,
+		qpeerset.PeerWaiting,
 		qpeerset.PeerQueried)
 	distances := make([]float64, os.dht.bucketSize)
 	for i, p := range closest {

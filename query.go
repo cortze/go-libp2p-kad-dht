@@ -239,10 +239,10 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 	var peers []peer.ID
 	peerState := make(map[peer.ID]qpeerset.PeerState)
 	qp := q.queryPeers.GetClosestNInStates(
-		q.dht.bucketSize, 
-		q.dht.BlacklistPeers, 
-		qpeerset.PeerHeard, 
-		qpeerset.PeerWaiting, 
+		q.dht.bucketSize,
+		q.dht.BlacklistPeers,
+		qpeerset.PeerHeard,
+		qpeerset.PeerWaiting,
 		qpeerset.PeerQueried)
 	for _, p := range qp {
 		state := q.queryPeers.GetState(p)
@@ -257,11 +257,11 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 	}
 
 	closest := q.queryPeers.GetClosestNInStates(
-		q.dht.bucketSize, 
+		q.dht.bucketSize,
 		q.dht.BlacklistPeers,
-		qpeerset.PeerHeard, 
-		qpeerset.PeerWaiting, 
-		qpeerset.PeerQueried, 
+		qpeerset.PeerHeard,
+		qpeerset.PeerWaiting,
+		qpeerset.PeerQueried,
 		qpeerset.PeerUnreachable)
 
 	// return the top K not unreachable peers as well as their states at the end of the query
@@ -270,7 +270,7 @@ func (q *query) constructLookupResult(target kb.ID) *lookupWithFollowupResult {
 		state:         make([]qpeerset.PeerState, len(sortedPeers)),
 		lookupMetrics: q.lookupMetrics,
 		completed:     completed,
-		closest:   closest,
+		closest:       closest,
 	}
 
 	for i, p := range sortedPeers {

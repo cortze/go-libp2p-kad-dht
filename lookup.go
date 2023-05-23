@@ -31,9 +31,9 @@ func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID,
 
 	//TODO: I can break the interface! return []peer.ID
 	lookupRes, err := dht.runLookupWithFollowup(
-		ctx, 
-		key, 
-		dht.pmGetClosestPeers(key), 
+		ctx,
+		key,
+		dht.pmGetClosestPeers(key),
 		func(*qpeerset.QueryPeerset) bool { return false })
 
 	if err != nil {

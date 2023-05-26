@@ -41,7 +41,7 @@ func (dht *IpfsDHT) GetClosestPeers(ctx context.Context, key string) ([]peer.ID,
 	}
 
 	if err := ctx.Err(); err != nil || !lookupRes.completed {
-		return lookupRes.peers, nil, err
+		return lookupRes.peers, lookupRes.lookupMetrics, err
 	}
 
 	// tracking lookup results for network size estimator

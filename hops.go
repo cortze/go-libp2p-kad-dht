@@ -5,24 +5,22 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-	log "github.com/sirupsen/logrus"
 )
 
 type LookupMetrics struct {
 	m            *sync.Mutex
 	startTime    time.Time
-	hops         int
+	totalHops         int
 	tree         map[peer.ID]*hop
 	ogPeers      map[peer.ID]*hop
 	closestPeers []peer.ID
 }
 
 func NewLookupMetrics() *LookupMetrics {
-	log.Trace("new lookup metrics")
 	return &LookupMetrics{
 		m:            new(sync.Mutex),
 		startTime:    time.Now(),
-		hops:         0,
+		totalHops:         0,
 		tree:         make(map[peer.ID]*hop),
 		ogPeers:      make(map[peer.ID]*hop),
 		closestPeers: make([]peer.ID, 0),
@@ -32,11 +30,6 @@ func NewLookupMetrics() *LookupMetrics {
 func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 	l.m.Lock()
 	defer l.m.Unlock()
-
-	log.WithFields(log.Fields{
-		"cause": causePeer.String(),
-		"peer":  len(p),
-	}).Trace("Adding new peers")
 
 	// get parent hop
 	parentHop, ok := l.searchOgPeer(causePeer)
@@ -48,7 +41,7 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 		// add the parent hop to the level 0 tree
 		l.tree[causePeer] = parentHop
 		l.ogPeers[causePeer] = parentHop
-		l.hops++
+		l.totalHops++
 	}
 
 	// iter throught the new peers to add to the tree
@@ -93,7 +86,11 @@ func (l *LookupMetrics) GetClosestPeers() []peer.ID {
 	return l.closestPeers
 }
 
-func (l *LookupMetrics) GetHopsForPeerSet(peerSet []peer.ID) int {
+func (l *LookupMetrics) GetTotalHops() int {
+	return l.totalHops 
+}
+
+func (l *LookupMetrics) GetMinHopsForPeerSet(peerSet []peer.ID) int {
 	return l.getHopsForPeerSet(peerSet)
 }
 
@@ -130,12 +127,6 @@ func (l *LookupMetrics) getHopsForPeerSet(peerSet []peer.ID) int {
 			biggestSetHop = shortestHop // TODO: we still have to figure it out whether we want to add the seed peers as hops
 		}
 	}
-
-	log.WithFields(log.Fields{
-		"peerSetLen": len(peerSet),
-		"hops":       biggestSetHop,
-	}).Trace("Adding new peer")
-
 	return biggestSetHop
 }
 
@@ -143,24 +134,22 @@ func (l *LookupMetrics) GetStartTime() time.Time {
 	return l.startTime
 }
 
-func (l *LookupMetrics) GetHops() int {
-	return l.getHops()
+func (l *LookupMetrics) GetTreeDepth() int {
+	return l.getTreeDepth()
 }
 
 func (l *LookupMetrics) GetContectedPeers() int {
-	return l.hops
+	return l.totalHops
 }
 
-func (l *LookupMetrics) getHops() int {
+func (l *LookupMetrics) getTreeDepth() int {
 	l.m.Lock()
 	defer l.m.Unlock()
 
-	//peerCache := make(map[peer.ID]bool)
 	var maxHops int
 
 	// go through the entire tree checking which is the largest branch
 	for _, v := range l.tree {
-		//	peerCache[v.causePeer] = true            // add to the cache the seed peers
 		auxHops := v.getNumberOfHops() // no previous hops since we are at parent
 		if auxHops > maxHops {
 			maxHops = auxHops
@@ -170,7 +159,6 @@ func (l *LookupMetrics) getHops() int {
 }
 
 func (l *LookupMetrics) searchOgPeer(peerID peer.ID) (*hop, bool) {
-	// iter through the ogPeers tree (optimized version)
 	h, ok := l.ogPeers[peerID]
 	return h, ok
 }
@@ -184,10 +172,6 @@ type hop struct {
 }
 
 func newHop(causePeer peer.ID) *hop {
-	log.WithFields(log.Fields{
-		"cause": causePeer.String(),
-	}).Trace("new hop")
-
 	return &hop{
 		firstReportTime: time.Now(),
 		causePeer:       causePeer,
@@ -198,34 +182,6 @@ func newHop(causePeer peer.ID) *hop {
 
 func (h *hop) len() int {
 	return len(h.hops)
-}
-
-// --- Depecated: was adding to much overhead when adding pers ---
-// moved to a OgPeers cache in LookupMetrics
-func (h *hop) searchPeer(peerID peer.ID) (*hop, bool) {
-	h.m.Lock()
-	defer h.m.Unlock()
-
-	log.WithFields(log.Fields{
-		"peer": peerID.String(),
-	}).Trace("searching peer in hop")
-
-	// iter through each of the hops in the list
-	for p, hp := range h.hops {
-		// return only the hop of the peer that is not a original of an existing one
-		if p == peerID && hp.original {
-			return hp, true
-		}
-		auxH, ok := hp.searchPeer(peerID)
-		if ok {
-			if !auxH.original {
-				log.Panic("pointer to non-original hop has been received at Hop")
-			}
-			return auxH, true
-		}
-	}
-	// if previosu search didn't succeed, return failure searching
-	return nil, false
 }
 
 func (h *hop) addSubHop(subHop *hop) {

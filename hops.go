@@ -10,7 +10,7 @@ import (
 type LookupMetrics struct {
 	m            *sync.Mutex
 	startTime    time.Time
-	totalHops         int
+	totalHops    int
 	tree         map[peer.ID]*hop
 	ogPeers      map[peer.ID]*hop
 	closestPeers []peer.ID
@@ -20,7 +20,7 @@ func NewLookupMetrics() *LookupMetrics {
 	return &LookupMetrics{
 		m:            new(sync.Mutex),
 		startTime:    time.Now(),
-		totalHops:         0,
+		totalHops:    0,
 		tree:         make(map[peer.ID]*hop),
 		ogPeers:      make(map[peer.ID]*hop),
 		closestPeers: make([]peer.ID, 0),
@@ -87,7 +87,7 @@ func (l *LookupMetrics) GetClosestPeers() []peer.ID {
 }
 
 func (l *LookupMetrics) GetTotalHops() int {
-	return l.totalHops 
+	return l.totalHops
 }
 
 func (l *LookupMetrics) GetMinHopsForPeerSet(peerSet []peer.ID) int {

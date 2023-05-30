@@ -107,11 +107,11 @@ func (dht *IpfsDHT) newOptimisticState(ctx context.Context, key string) (*optimi
 	}, nil
 }
 
-func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.Multihash) error {
+func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.Multihash) (*LookupMetrics, error) {
 	key := string(keyMH)
 
 	if key == "" {
-		return fmt.Errorf("can't lookup empty key")
+		return nil, fmt.Errorf("can't lookup empty key")
 	}
 
 	// initialize new context for all putProvider operations.
@@ -124,7 +124,7 @@ func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.
 	es, err := dht.newOptimisticState(putCtx, key)
 	if err != nil {
 		putCtxCancel()
-		return err
+		return nil, err
 	}
 
 	// initialize context that finishes when this function returns
@@ -145,8 +145,9 @@ func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.
 
 	lookupRes, err := dht.runLookupWithFollowup(outerCtx, key, dht.pmGetClosestPeers(key), es.stopFn)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	lMetrics := lookupRes.lookupMetrics
 
 	// Store the provider records with all the closest peers we haven't already contacted/scheduled interaction with.
 	es.peerStatesLk.Lock()
@@ -164,7 +165,7 @@ func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.
 	es.waitForRPCs()
 
 	if err := outerCtx.Err(); err != nil || !lookupRes.completed { // likely the "completed" field is false but that's not a given
-		return err
+		return nil, err
 	}
 
 	// tracking lookup results for network size estimator as "completed" is true
@@ -179,7 +180,7 @@ func (dht *IpfsDHT) optimisticProvide(outerCtx context.Context, keyMH multihash.
 	// refresh the cpl for this key as the query was successful
 	dht.routingTable.ResetCplRefreshedAtForID(kb.ConvertKey(key), time.Now())
 
-	return nil
+	return lMetrics, nil
 }
 
 func (os *optimisticState) stopFn(qps *qpeerset.QueryPeerset) bool {

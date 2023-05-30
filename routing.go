@@ -417,17 +417,48 @@ func (dht *IpfsDHT) Provide(ctx context.Context, key cid.Cid, brdcst bool) (err 
 	}
 
 	if dht.enableOptProv {
-		err := dht.optimisticProvide(ctx, keyMH)
+		_, err := dht.optimisticProvide(ctx, keyMH)
+		if errors.Is(err, netsize.ErrNotEnoughData) {
+			logger.Debugln("not enough data for optimistic provide taking classic approach")
+			_, err = dht.classicProvide(ctx, keyMH)
+			return err
+		}
+		return err
+	}
+	_, err = dht.classicProvide(ctx, keyMH)
+	return err
+}
+
+// Provide makes this node announce that it can provide a value for the given key
+func (dht *IpfsDHT) DetailedProvide(ctx context.Context, key cid.Cid, brdcst bool) (lookupMetrics *LookupMetrics, err error) {
+	ctx, span := internal.StartSpan(ctx, "IpfsDHT.Provide", trace.WithAttributes(attribute.String("Key", key.String()), attribute.Bool("Broadcast", brdcst)))
+	defer span.End()
+
+	if !dht.enableProviders {
+		return nil, routing.ErrNotSupported
+	} else if !key.Defined() {
+		return nil, fmt.Errorf("invalid cid: undefined")
+	}
+	keyMH := key.Hash()
+	logger.Debugw("providing", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
+
+	dht.providerStore.AddProvider(ctx, keyMH, peer.AddrInfo{ID: dht.self})
+	if !brdcst {
+		return nil, nil
+	}
+
+	if dht.enableOptProv {
+		lookupMetrics, err := dht.optimisticProvide(ctx, keyMH)
 		if errors.Is(err, netsize.ErrNotEnoughData) {
 			logger.Debugln("not enough data for optimistic provide taking classic approach")
 			return dht.classicProvide(ctx, keyMH)
 		}
-		return err
+		return lookupMetrics, err
 	}
 	return dht.classicProvide(ctx, keyMH)
 }
 
-func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihash) error {
+func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihash) (*LookupMetrics, error) {
 	closerCtx := ctx
 	if deadline, ok := ctx.Deadline(); ok {
 		now := time.Now()
@@ -435,7 +466,7 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 
 		if timeout < 0 {
 			// timed out
-			return context.DeadlineExceeded
+			return nil, context.DeadlineExceeded
 		} else if timeout < 10*time.Second {
 			// Reserve 10% for the final put.
 			deadline = deadline.Add(-timeout / 10)
@@ -453,26 +484,18 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 
 	peers, lMetrics, err := dht.GetClosestPeers(closerCtx, string(keyMH))
 
-	// check if the context has a given value (pointer for the number of hops)
-	if v := ctx.Value(ContextKey("lookupMetrics")); v != nil {
-		var lookupMetrics *LookupMetrics
-		lookupMetrics = v.(*LookupMetrics)
-		// add to the received pointer the content of the lookup metrics
-		*lookupMetrics = *lMetrics
-	}
-
 	switch err {
 	case context.DeadlineExceeded:
 		// If the _inner_ deadline has been exceeded but the _outer_
 		// context is still fine, provide the value to the closest peers
 		// we managed to find, even if they're not the _actual_ closest peers.
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return lMetrics, ctx.Err()
 		}
 		exceededDeadline = true
 	case nil:
 	default:
-		return err
+		return lMetrics, err
 	}
 
 	wg := sync.WaitGroup{}
@@ -489,9 +512,9 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 	}
 	wg.Wait()
 	if exceededDeadline {
-		return context.DeadlineExceeded
+		return lMetrics, context.DeadlineExceeded
 	}
-	return ctx.Err()
+	return lMetrics, ctx.Err()
 }
 
 // FindProviders searches until the context expires.

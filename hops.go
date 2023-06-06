@@ -41,7 +41,6 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 		// add the parent hop to the level 0 tree
 		l.tree[causePeer] = parentHop
 		l.ogPeers[causePeer] = parentHop
-		l.totalHops++
 	}
 
 	// iter throught the new peers to add to the tree
@@ -64,6 +63,7 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 		// link always the child hop to the parent hop
 		parentHop.addSubHop(h)
 	}
+	l.totalHops++
 }
 
 func (l *LookupMetrics) setClosestPeers(cPeers []peer.ID) {

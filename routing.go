@@ -17,14 +17,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	u "github.com/ipfs/boxo/util"
-	"github.com/ipfs/go-cid"
+	cid "github.com/ipfs/go-cid"
+	multihash "github.com/multiformats/go-multihash"
+
 	"github.com/libp2p/go-libp2p-kad-dht/internal"
 	internalConfig "github.com/libp2p/go-libp2p-kad-dht/internal/config"
 	"github.com/libp2p/go-libp2p-kad-dht/netsize"
 	"github.com/libp2p/go-libp2p-kad-dht/qpeerset"
 	kb "github.com/libp2p/go-libp2p-kbucket"
 	record "github.com/libp2p/go-libp2p-record"
-	"github.com/multiformats/go-multihash"
 )
 
 // This file implements the Routing interface for the IpfsDHT struct.
@@ -533,6 +534,20 @@ func (dht *IpfsDHT) FindProviders(ctx context.Context, c cid.Cid) ([]peer.AddrIn
 }
 
 // --- CUSTOM MODIFICATION for the CID Hoarder ---
+// LookupForProviders searches for the first provider of a PR only using the async DHT lookup
+func (dht *IpfsDHT) LookupForXXProviders(ctx context.Context, c cid.Cid, targetProviders int) ([]peer.AddrInfo, error) {
+	if !dht.enableProviders {
+		return nil, routing.ErrNotSupported
+	} else if !c.Defined() {
+		return nil, fmt.Errorf("invalid cid: undefined")
+	}
+
+	var providers []peer.AddrInfo
+	for p := range dht.FindProvidersByLookupAsync(ctx, c, targetProviders) { // wait only for the first provider
+		providers = append(providers, p)
+	}
+	return providers, nil
+}
 
 // LookupForProviders searches for the providers of a PR only using the async DHT lookup
 func (dht *IpfsDHT) LookupForProviders(ctx context.Context, c cid.Cid) ([]peer.AddrInfo, error) {

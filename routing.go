@@ -483,7 +483,7 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 
 	var exceededDeadline bool
 
-	peers, lMetrics, err := dht.GetClosestPeers(closerCtx, string(keyMH))
+	peers, lkm, err := dht.GetClosestPeers(closerCtx, string(keyMH))
 
 	switch err {
 	case context.DeadlineExceeded:
@@ -491,12 +491,12 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 		// context is still fine, provide the value to the closest peers
 		// we managed to find, even if they're not the _actual_ closest peers.
 		if ctx.Err() != nil {
-			return lMetrics, ctx.Err()
+			return lkm, ctx.Err()
 		}
 		exceededDeadline = true
 	case nil:
 	default:
-		return lMetrics, err
+		return lkm, err
 	}
 
 	wg := sync.WaitGroup{}
@@ -513,9 +513,9 @@ func (dht *IpfsDHT) classicProvide(ctx context.Context, keyMH multihash.Multihas
 	}
 	wg.Wait()
 	if exceededDeadline {
-		return lMetrics, context.DeadlineExceeded
+		return lkm, context.DeadlineExceeded
 	}
-	return lMetrics, ctx.Err()
+	return lkm, ctx.Err()
 }
 
 // FindProviders searches until the context expires.
@@ -535,18 +535,19 @@ func (dht *IpfsDHT) FindProviders(ctx context.Context, c cid.Cid) ([]peer.AddrIn
 
 // --- CUSTOM MODIFICATION for the CID Hoarder ---
 // LookupForProviders searches for the first provider of a PR only using the async DHT lookup
-func (dht *IpfsDHT) LookupForXXProviders(ctx context.Context, c cid.Cid, targetProviders int) ([]peer.AddrInfo, error) {
+func (dht *IpfsDHT) LookupForXXProviders(ctx context.Context, c cid.Cid, targetProviders int) ([]peer.AddrInfo, *LookupMetrics, error) {
 	if !dht.enableProviders {
-		return nil, routing.ErrNotSupported
+		return nil, &LookupMetrics{}, routing.ErrNotSupported
 	} else if !c.Defined() {
-		return nil, fmt.Errorf("invalid cid: undefined")
+		return nil, &LookupMetrics{}, fmt.Errorf("invalid cid: undefined")
 	}
 
+	lkm := NewLookupMetrics()
 	var providers []peer.AddrInfo
-	for p := range dht.FindProvidersByLookupAsync(ctx, c, targetProviders) { // wait only for the first provider
+	for p := range dht.DetailedFindProvidersByLookupAsync(ctx, c, targetProviders, lkm) { // wait only for the first provider
 		providers = append(providers, p)
 	}
-	return providers, nil
+	return providers, lkm, nil
 }
 
 // LookupForProviders searches for the providers of a PR only using the async DHT lookup
@@ -584,6 +585,25 @@ func (dht *IpfsDHT) FindProvidersByLookupAsync(ctx context.Context, key cid.Cid,
 	return peerOut
 }
 
+func (dht *IpfsDHT) DetailedFindProvidersByLookupAsync(ctx context.Context, key cid.Cid, count int, lkm *LookupMetrics) <-chan peer.AddrInfo {
+	if !dht.enableProviders || !key.Defined() {
+		peerOut := make(chan peer.AddrInfo)
+		close(peerOut)
+		return peerOut
+	}
+
+	chSize := count
+	if count == 0 {
+		chSize = 1
+	}
+	peerOut := make(chan peer.AddrInfo, chSize)
+	keyMH := key.Hash()
+
+	logger.Debugw("finding providers", "cid", key, "mh", internal.LoggableProviderRecordBytes(keyMH))
+	go dht.detailedLookupForProvidersAsync(ctx, keyMH, count, peerOut, lkm)
+	return peerOut
+}
+
 func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.Multihash, count int, peerOut chan peer.AddrInfo) {
 	defer close(peerOut)
 
@@ -607,6 +627,7 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 		return len(ps)
 	}
 
+	// TODO: track metrics and return them to the app
 	_, _ = dht.runLookupWithFollowup(ctx, string(key),
 		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
 			// For DHT query command
@@ -652,6 +673,78 @@ func (dht *IpfsDHT) lookupForProvidersAsync(ctx context.Context, key multihash.M
 			return !findAll && psSize() >= count
 		},
 	)
+}
+
+func (dht *IpfsDHT) detailedLookupForProvidersAsync(ctx context.Context, key multihash.Multihash, count int, peerOut chan peer.AddrInfo, lkm *LookupMetrics) {
+	defer close(peerOut)
+
+	findAll := count == 0
+
+	ps := make(map[peer.ID]struct{})
+	psLock := &sync.Mutex{}
+	psTryAdd := func(p peer.ID) bool {
+		psLock.Lock()
+		defer psLock.Unlock()
+		_, ok := ps[p]
+		if !ok && (len(ps) < count || findAll) {
+			ps[p] = struct{}{}
+			return true
+		}
+		return false
+	}
+	psSize := func() int {
+		psLock.Lock()
+		defer psLock.Unlock()
+		return len(ps)
+	}
+
+	// TODO: track metrics and return them to the app
+	res, _ := dht.runLookupWithFollowup(ctx, string(key),
+		func(ctx context.Context, p peer.ID) ([]*peer.AddrInfo, error) {
+			// For DHT query command
+			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+				Type: routing.SendingQuery,
+				ID:   p,
+			})
+			provs, closest, err := dht.protoMessenger.GetProviders(ctx, p, key)
+			if err != nil {
+				return nil, err
+			}
+			logger.Debugf("%d provider entries", len(provs))
+			// Add unique providers from request, up to 'count'
+			for _, prov := range provs {
+				logger.Debugf("got provider: %s", prov)
+				if psTryAdd(prov.ID) {
+					logger.Debugf("using provider: %s", prov)
+					select {
+					case peerOut <- *prov:
+					case <-ctx.Done():
+						logger.Debug("context timed out sending more providers")
+						return nil, ctx.Err()
+					}
+				}
+				if !findAll && psSize() >= count {
+					logger.Debugf("got enough providers (%d/%d)", psSize(), count)
+					return nil, nil
+				}
+			}
+
+			// Give closer peers back to the query to be queried
+			logger.Debugf("got closer peers: %d %s", len(closest), closest)
+
+			routing.PublishQueryEvent(ctx, &routing.QueryEvent{
+				Type:      routing.PeerResponse,
+				ID:        p,
+				Responses: closest,
+			})
+
+			return closest, nil
+		},
+		func(*qpeerset.QueryPeerset) bool {
+			return !findAll && psSize() >= count
+		},
+	)
+	*lkm = *res.lookupMetrics
 }
 
 // --- END OF - CUSTOM MODIFICATION for the CID Hoarder ---

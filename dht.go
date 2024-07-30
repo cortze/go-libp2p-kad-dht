@@ -110,6 +110,8 @@ type IpfsDHT struct {
 	protoMessenger *pb.ProtocolMessenger
 	msgSender      pb.MessageSenderWithDisconnect
 
+	plk sync.Mutex
+
 	stripedPutLocks [256]sync.Mutex
 
 	// DHT protocols we query with. We'll only add peers to our routing

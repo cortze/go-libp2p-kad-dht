@@ -79,7 +79,8 @@ func TestOptimisticProvide(t *testing.T) {
 
 	for _, k := range testCaseCids {
 		logger.Debugf("announcing provider for %s", k)
-		if err := privDHT.optimisticProvide(ctx, k.Hash()); err != nil {
+		_, err := privDHT.optimisticProvide(ctx, k.Hash())
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

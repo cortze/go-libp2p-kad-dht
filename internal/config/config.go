@@ -50,7 +50,7 @@ type Config struct {
 	QueryPeerFilter        QueryFilterFunc
 	LookupCheckConcurrency int
 	BlacklistPeers         map[peer.ID]struct{}
-	MessageSenderFunc      func(h host.Host, protos []protocol.ID) pb.MessageSender
+	MessageSenderFunc      func(h host.Host, protos []protocol.ID) pb.MessageSenderWithDisconnect
 
 	RoutingTable struct {
 		RefreshQueryTimeout time.Duration

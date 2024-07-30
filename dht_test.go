@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/libp2p/go-libp2p-kad-dht/internal/net"
+	"github.com/libp2p/go-libp2p-kad-dht/net"
 	"github.com/libp2p/go-libp2p-kad-dht/providers"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/event"
@@ -598,7 +598,7 @@ func TestProvideAddressFilter(t *testing.T) {
 	testMaddr := ma.StringCast("/ip4/99.99.99.99/tcp/9999")
 
 	done := make(chan struct{})
-	impl := net.NewMessageSenderImpl(dhts[0].host, dhts[0].protocols)
+	impl := net.NewMessageSenderImpl(dhts[0].host, dhts[0].protocols, "")
 	tms := &testMessageSender{
 		sendMessage: func(ctx context.Context, p peer.ID, pmes *pb.Message) error {
 			defer close(done)

@@ -55,32 +55,34 @@ func TestQPeerSet(t *testing.T) {
 	require.Equal(t, 0, qp.NumWaiting())
 
 	// add peer4
+	blacklisted := make(map[peer.ID]struct{})
+
 	require.True(t, qp.TryAdd(peer4, oracle))
-	cl := qp.GetClosestNInStates(2, PeerHeard, PeerWaiting, PeerQueried)
+	cl := qp.GetClosestNInStates(2, blacklisted, PeerHeard, PeerWaiting, PeerQueried)
 	require.Equal(t, []peer.ID{peer4, peer2}, cl)
-	cl = qp.GetClosestNInStates(3, PeerHeard, PeerWaiting, PeerQueried)
+	cl = qp.GetClosestNInStates(3, blacklisted, PeerHeard, PeerWaiting, PeerQueried)
 	require.Equal(t, []peer.ID{peer4, peer2}, cl)
-	cl = qp.GetClosestNInStates(1, PeerHeard, PeerWaiting, PeerQueried)
+	cl = qp.GetClosestNInStates(1, blacklisted, PeerHeard, PeerWaiting, PeerQueried)
 	require.Equal(t, []peer.ID{peer4}, cl)
 
 	// mark as unreachable & try to get it
 	qp.SetState(peer4, PeerUnreachable)
-	cl = qp.GetClosestNInStates(1, PeerHeard, PeerWaiting, PeerQueried)
+	cl = qp.GetClosestNInStates(1, blacklisted, PeerHeard, PeerWaiting, PeerQueried)
 	require.Equal(t, []peer.ID{peer2}, cl)
 
 	// add peer1
 	require.True(t, qp.TryAdd(peer1, oracle))
-	cl = qp.GetClosestNInStates(1, PeerHeard, PeerWaiting, PeerQueried)
+	cl = qp.GetClosestNInStates(1, blacklisted, PeerHeard, PeerWaiting, PeerQueried)
 	require.Equal(t, []peer.ID{peer1}, cl)
-	cl = qp.GetClosestNInStates(2, PeerHeard, PeerWaiting, PeerQueried)
+	cl = qp.GetClosestNInStates(2, blacklisted, PeerHeard, PeerWaiting, PeerQueried)
 	require.Equal(t, []peer.ID{peer1, peer2}, cl)
 
 	// mark as waiting and assert
 	qp.SetState(peer2, PeerWaiting)
-	require.Equal(t, []peer.ID{peer2}, qp.GetClosestInStates(PeerWaiting))
+	require.Equal(t, []peer.ID{peer2}, qp.GetClosestInStates(blacklisted, PeerWaiting))
 
-	require.Equal(t, []peer.ID{peer1}, qp.GetClosestInStates(PeerHeard))
+	require.Equal(t, []peer.ID{peer1}, qp.GetClosestInStates(blacklisted, PeerHeard))
 	require.True(t, qp.TryAdd(peer3, oracle))
-	require.Equal(t, []peer.ID{peer3, peer1}, qp.GetClosestInStates(PeerHeard))
+	require.Equal(t, []peer.ID{peer3, peer1}, qp.GetClosestInStates(blacklisted, PeerHeard))
 	require.Equal(t, 2, qp.NumHeard())
 }

@@ -102,7 +102,7 @@ func TestLookupMetrics(t *testing.T) {
 	}
 
 	// generate the parent queryHop
-	qHop := newLookupMetrics()
+	qHop := NewLookupMetrics()
 
 	// ---- level 1 and 2 of the tree ----
 	// add peer 2 and 3 as child hops from 0
@@ -113,7 +113,7 @@ func TestLookupMetrics(t *testing.T) {
 	// add peer 4 and 5 as child hops from 1
 	qHop.addNewPeers(peerIDSet[1], []peer.ID{peerIDSet[4], peerIDSet[5]})
 
-	hops := qHop.getHops()
+	hops := qHop.GetTreeDepth()
 	require.Equal(t, 1, hops)
 
 	require.Equal(t, 2, qHop.tree[peerIDSet[1]].len())
@@ -130,7 +130,7 @@ func TestLookupMetrics(t *testing.T) {
 	// add 8 from 3
 	qHop.addNewPeers(peerIDSet[3], []peer.ID{peerIDSet[8]})
 
-	hops = qHop.getHops()
+	hops = qHop.GetTreeDepth()
 	require.Equal(t, 2, hops)
 
 	// ---- level 4 of the tree ----
@@ -150,7 +150,7 @@ func TestLookupMetrics(t *testing.T) {
 	// add 11 from 10
 	qHop.addNewPeers(peerIDSet[10], []peer.ID{peerIDSet[11]})
 
-	hops = qHop.getHops()
+	hops = qHop.GetTreeDepth()
 	require.Equal(t, 3, hops)
 
 	// TEMPORARY
@@ -160,7 +160,7 @@ func TestLookupMetrics(t *testing.T) {
 	// add 6 from 11
 	qHop.addNewPeers(peerIDSet[11], []peer.ID{peerIDSet[6]})
 
-	hops = qHop.getHops()
+	hops = qHop.GetTreeDepth()
 	require.Equal(t, 4, hops)
 
 	// TEMPORARY
@@ -217,7 +217,7 @@ func TestLookupMetrics(t *testing.T) {
 
 	// -- Test the Tree Depth
 
-	hops = qHop.getHops()
+	hops = qHop.GetTreeDepth()
 	require.Equal(t, 4, hops)
 
 	// -- Test the shortest hop to a given peer

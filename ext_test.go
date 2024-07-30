@@ -40,8 +40,6 @@ func TestInvalidRemotePeers(t *testing.T) {
 		t.Fatal("failed to connect peers", err)
 	}
 
-<<<<<<< HEAD
-<<<<<<< HEAD
 	// Wait at a bit for a peer in our routing table.
 	for i := 0; i < 100 && d.routingTable.Size() == 0; i++ {
 		time.Sleep(10 * time.Millisecond)
@@ -59,10 +57,6 @@ func TestInvalidRemotePeers(t *testing.T) {
 		done <- err
 	}()
 
-=======
->>>>>>> 8c9fdff (fix: don't add unresponsive DHT servers to the Routing Table (#820))
-=======
->>>>>>> d373974 (fix: don't add unresponsive DHT servers to the Routing Table (#820))
 	time.Sleep(100 * time.Millisecond)
 
 	// hosts[1] isn't added to the routing table because it isn't responding to

@@ -67,9 +67,7 @@ func (l *LookupMetrics) addNewPeers(causePeer peer.ID, p []peer.ID) {
 }
 
 func (l *LookupMetrics) setClosestPeers(cPeers []peer.ID) {
-	for _, p := range cPeers {
-		l.closestPeers = append(l.closestPeers, p)
-	}
+	l.closestPeers = append(l.closestPeers, cPeers...)
 }
 
 // GetOgPeers is a non-thread safe operation, please use only for retrieving results

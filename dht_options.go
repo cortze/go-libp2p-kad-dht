@@ -362,7 +362,7 @@ func WithPeerBlacklist(blacklist map[peer.ID]struct{}) Option {
 // --- NEW FEATURE ---
 // WithCustomMessageSender configures the pb.MessageSender of the IpfsDHT to use the
 // custom implementation of the pb.MessageSender
-func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSender) Option {
+func WithCustomMessageSender(initFunc func(h host.Host, protos []protocol.ID) pb.MessageSenderWithDisconnect) Option {
 	return func(c *dhtcfg.Config) error {
 		c.MessageSenderFunc = initFunc
 		return nil
